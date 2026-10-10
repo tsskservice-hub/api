@@ -1,0 +1,19 @@
+# 依存関係（npmで自動生成されるため不要）
+node_modules/
+
+# ローカル環境変数（APIキーなどの機密情報が書かれているため絶対に除外）
+.dev.vars
+.env
+.env.*
+
+# Cloudflare Workersのビルド成果物・一時ファイル
+.wrangler/
+dist/
+build/
+
+# OSが自動生成する隠しファイル
+.DS_Store
+Thumbs.db
+
+# VS Codeの設定ファイル（必要に応じて除外。個人設定を残したい場合はコメントアウトでも可）
+.vscode/
