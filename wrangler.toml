@@ -1,6 +1,6 @@
 name = "yamato-api"
 main = "src/index.ts"
-compatibility_date = "2026-1-11"
+compatibility_date = "2024-11-11"
 
 [vars]
 # 必要に応じて環境変数をここに記述（APIキーはCloudflareダッシュボードのSecretsに登録推奨）
