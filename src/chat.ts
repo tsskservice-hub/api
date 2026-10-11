@@ -1,11 +1,11 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（context.ts, 時間・天気統合 ＆ 画像生成AI連携完全版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（context.ts, 時間・天気統合 ＆ 画像生成AI連携完全版・マルチペルソナ対応）
  */
 
-import { buildAiYamatoContext } from '../../src/ai/context.js';
-import { buildSystemInstructionWithTimeAndWeather } from '../../src/ai/time-utils.js';
-import { generateVisualAid } from '../../src/ai/imagen-service.js';
+import { buildAiYamatoContext } from './context.js';
+import { buildSystemInstructionWithTimeAndWeather } from './time-utils.js';
+import { generateVisualAid } from './imagen-service.js';
 
 export async function onRequestPost(context: any) {
   try {
@@ -17,6 +17,8 @@ export async function onRequestPost(context: any) {
       userNickname?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
+      appType?: string;      // 👈 追加：ペルソナ識別用（例: "general", "vce_oral", "vce_writing" 等）
+      systemPrompt?: string; // 👈 追加：個別に渡されるカスタムプロンプト
     };
 
     const { 
@@ -25,7 +27,9 @@ export async function onRequestPost(context: any) {
       learningPace = "normal", 
       userNickname = "生徒さん",
       visualPrompt,
-      requestVisualAid = false
+      requestVisualAid = false,
+      appType = "general",
+      systemPrompt = ""
     } = body;
 
     // Cloudflareの環境変数から設定値を取得
@@ -69,12 +73,18 @@ export async function onRequestPost(context: any) {
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
 
     // 4. context.ts の buildAiYamatoContext を呼び出してシステムプロンプトを構築
+    // appType の型エラーを回避するため、文字列として安全に許容される型へキャストまたは調整
     let baseSystemPrompt = buildAiYamatoContext({
       learningPace,
       userNickname,
       dialogueCount: chatHistory.length + 1,
-      appType: "general"
+      appType: appType as any
     });
+
+    // もしフロントから追加の systemPrompt があれば結合する
+    if (systemPrompt) {
+      baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
+    }
 
     // 英語応答の遵守指示と画像生成状況をシステムプロンプトに補強
     baseSystemPrompt += `\n\n<CRITICAL_LANGUAGE_AND_VISUAL_RULES>
@@ -131,7 +141,6 @@ export async function onRequestPost(context: any) {
     }
 
     const vertexData = await vertexResponse.json() as any;
-    // 修正箇所: カテナリーの重複（?.?.）を正しいオプショナルチェーニングに修正
     const aiReply = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
 
     // 7. 画像生成の実行 (チェックボックスがONの場合にのみ実行)

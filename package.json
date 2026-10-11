@@ -7,10 +7,12 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
+    "@google/genai": "^2.28.0",
     "hono": "^4.0.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20240000.0",
+    "@types/node": "^26.6.5",
     "typescript": "^5.0.0",
     "wrangler": "^3.0.0"
   }
