@@ -19,7 +19,7 @@ export interface PersonaContextOptions {
   dialogueCount?: number;
   curriculumContext?: string;
   questionSource?: string;
-  appType?: 'writing' | 'oral' | 'general';
+  appType?: 'writing' | 'oral' | 'general' | 'concierge';
 }
 
 /**
@@ -107,6 +107,18 @@ function getOralOrGeneralPaceInstruction(pace?: string): string {
 }
 
 /**
+ * LPコンシェルジュ専用の振る舞いインストラクション
+ */
+function getConciergeInstructions(): string {
+  return `
+<concierge_mode_rules>
+- Role: Landing Page Concierge for Yamato Portal.
+- Objective: Welcome every visitor (students, parents, and educators) warmly as "my friend". Actively listen to their needs or questions regarding Japanese learning, and guide them smoothly to the most suitable features or rooms inside the portal (such as VCE writing practice, oral exam rooms, or general grammar resources).
+- Tone & Style: Highly hospitable, encouraging, warm, approachable, and helpful. Always use AU/UK English spelling (realise, colour, centre) and Unicode arrows (->) when pointing to features or next steps.
+</concierge_mode_rules>`.trim();
+}
+
+/**
  * 画像添付時のVision処理・ディスクレパンシーチェックルール
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
@@ -114,22 +126,14 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 
   return `
 <input_initial_action>
-  - Trigger Condition: An image file of a handwritten response is uploaded by the student.
+  - Trigger Condition: An image file is uploaded by the visitor.
   - Direct Vision Transcription & Echo Output:
-    1. State the assigned question: "[Assigned Question] : "${assignedQuestion || "General VCE Writing Task"}""
-    2. Transcribe the student's handwritten response from the uploaded image.
-    3. Output the transcription markdown format block at the beginning.
+    1. Acknowledge the uploaded material.
+    2. Provide helpful guidance or insights based on the image in English.
 </input_initial_action>
 
-<discrepancy_check>
-  - Pre-Feedback Comparison: Compare the topic of assigned_question vs the transcribed text.
-  - CASE 0 (No Question Selected): Output warning and terminate.
-  - CASE 1 (On-Topic): Proceed with full feedback in English.
-  - CASE 2 (Discrepancy Detected): Output major warning and terminate session to prevent zero marks in the real exam.
-</discrepancy_check>
-
 <language_requirement>
-  - CRITICAL RULE FOR IMAGE FEEDBACK: Except for direct Japanese transcription and quoted examples, ALL explanations, corrections, and hints must be written entirely in English.
+  - CRITICAL RULE FOR IMAGE FEEDBACK: Except for direct Japanese examples, all explanations and guidance must be written entirely in English.
 </language_requirement>`.trim();
 }
 
@@ -139,14 +143,9 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 function getVceSpecificRules(): string {
   return `
 <vce_specific_rules>
-- VCE Greeting Focus: Reflect practice session appropriately.
 - VCAA Exam Info Policy:
   - NO UNSOLICITED EXAM STEERING.
   - STRICT VCAA WEBSITE REDIRECTION: If asked about official specs or rules, direct them to the official VCAA website (https://www.vcaa.vic.edu.au/assessment/vce/examination-specifications-past-examinations-and-examination-reports/languages/japanese-second-language) without guessing numbers.
-<writing_exam_focus_rules>
-- Genkoyoshi Layout & Character Count Vigilance (400-500 characters).
-- Active use of VCE kanji and vocabulary.
-</writing_exam_focus_rules>
 </vce_specific_rules>`.trim();
 }
 
@@ -156,7 +155,7 @@ function getVceSpecificRules(): string {
 export function buildAiYamatoContext(options: PersonaContextOptions = {}): string {
   const {
     userEmail = "",
-    userNickname = "",
+    userNickname = "my friend",
     assignedQuestion = "",
     exactCharacterCount = 0,
     learningPace = "normal",
@@ -174,39 +173,38 @@ export function buildAiYamatoContext(options: PersonaContextOptions = {}): strin
 
   const metadataSection = `
 <student_metadata>
-  - Student Email: ${userEmail}
+  - Visitor Email: ${userEmail}
   - User ID: ${userEmail}
-  - User nickname: ${userNickname || "Student"}
+  - User nickname: ${userNickname || "my friend"}
   - Active Question / Task: ${assignedQuestion}
   - Character count: ${exactCharacterCount}
-  - Student Learning pace: ${learningPace}
+  - Learning pace: ${learningPace}
   - User State (Returning): ${isReturningUser}
-  - Has Uploaded Image: ${hasFiles ? "Yes" : "No"}
+  - Has Uploaded File: ${hasFiles ? "Yes" : "No"}
   - Dialogue Turn: ${dialogueCount}
-  - Question Source Mode: ${questionSource || "curriculum"}
+  - Source Mode: ${questionSource || "portal"}
   - App Type: ${appType}
 </student_metadata>`.trim();
   sections.push(metadataSection);
 
-  const greetingRule = isReturningUser === "true"
-    ? `Start your greeting with: "Hello again! 🌟 Welcome back to your VCE Japanese practice session!"`
-    : `Start your greeting with: "Hello! 🌟 Welcome to your VCE Japanese practice session!"`;
-  
-  sections.push(`<greeting_rules>\n  - ${greetingRule}\n</greeting_rules>`);
-
-  sections.push(getVceSpecificRules());
+  // appType が concierge の場合とそれ以外で挨拶ルールを分岐
+  if (appType === "concierge") {
+    sections.push(getConciergeInstructions());
+    const greetingRule = isReturningUser === "true"
+      ? `Start your greeting with: "Hello again, my friend! 🌟 Welcome back to Yamato Portal. How can I help you explore our learning rooms today?"`
+      : `Start your greeting with: "Hello, my friend! 🌟 Welcome to Yamato Portal. I'm Yamato, your portal guide. Whether you're a student, parent, or educator, how can I assist you today?"`;
+    sections.push(`<greeting_rules>\n  - ${greetingRule}\n</greeting_rules>`);
+  } else {
+    const greetingRule = isReturningUser === "true"
+      ? `Start your greeting with: "Hello again, my friend! 🌟 Welcome back to your VCE Japanese practice session!"`
+      : `Start your greeting with: "Hello, my friend! 🌟 Welcome to your VCE Japanese practice session!"`;
+    sections.push(`<greeting_rules>\n  - ${greetingRule}\n</greeting_rules>`);
+    sections.push(getVceSpecificRules());
+  }
 
   const visionInstructions = getVisionHandlingInstructions(hasFiles, assignedQuestion);
   if (visionInstructions) {
     sections.push(visionInstructions);
-  }
-
-  if (!hasFiles && dialogueCount === 1) {
-    sections.push(`
-<handwriting_reminder_rules>
-  - Trigger Condition: Student begins with typed text instead of a handwritten photo.
-  - Guidance: Naturally weave an encouraging reminder in English to upload a handwritten photo for VCE exam practice.
-</handwriting_reminder_rules>`.trim());
   }
 
   if (appType === "writing") {
@@ -214,7 +212,7 @@ export function buildAiYamatoContext(options: PersonaContextOptions = {}): strin
     if (paceInstruction) {
       sections.push(paceInstruction);
     }
-  } else {
+  } else if (appType === "oral" || appType === "general") {
     const oralOrGeneralPace = getOralOrGeneralPaceInstruction(learningPace);
     if (oralOrGeneralPace) {
       sections.push(oralOrGeneralPace);
