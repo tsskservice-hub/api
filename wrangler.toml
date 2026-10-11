@@ -5,3 +5,7 @@ compatibility_date = "2024-11-11"
 routes = [
   { pattern = "api.jptutoraiyamato.com", custom_domain = true }
 ]
+
+[vars]
+VERTEX_AI_PROJECT_ID = "my-vertex-ai-production"
+VERTEX_AI_REGION = "us-central1"
