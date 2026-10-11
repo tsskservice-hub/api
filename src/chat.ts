@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（context.ts, 時間・天気統合 ＆ 画像生成AI連携完全版・マルチペルソナ対応）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -17,8 +17,8 @@ export async function onRequestPost(context: any) {
       userNickname?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
-      appType?: string;      // 👈 追加：ペルソナ識別用（例: "general", "vce_oral", "vce_writing" 等）
-      systemPrompt?: string; // 👈 追加：個別に渡されるカスタムプロンプト
+      appType?: string;
+      systemPrompt?: string;
     };
 
     const { 
@@ -32,13 +32,22 @@ export async function onRequestPost(context: any) {
       systemPrompt = ""
     } = body;
 
+    // 🔍 【デバッグログ】受信したリクエスト内容を確認
+    console.log("📥 [chat.ts] 受信データ:", {
+      message,
+      requestVisualAid,
+      visualPrompt,
+      appType,
+      learningPace
+    });
+
     // Cloudflareの環境変数から設定値を取得
     const projectId = env?.VERTEX_AI_PROJECT_ID;
     const region = env?.VERTEX_AI_REGION || "us-central1";
     const serviceAccountJsonStr = env?.GOOGLE_SERVICE_ACCOUNT_JSON;
 
     if (!projectId || !serviceAccountJsonStr) {
-      console.error("Missing config: projectId or serviceAccountJsonStr");
+      console.error("❌ Missing config: projectId or serviceAccountJsonStr");
       return new Response(
         JSON.stringify({ 
           reply: "Server configuration error: Vertex AI Project ID or Service Account JSON is missing in Cloudflare environment variables." 
@@ -52,7 +61,7 @@ export async function onRequestPost(context: any) {
     try {
       serviceAccount = JSON.parse(serviceAccountJsonStr);
     } catch (e: any) {
-      console.error("JSON parse error for GOOGLE_SERVICE_ACCOUNT_JSON:", e.message);
+      console.error("❌ JSON parse error for GOOGLE_SERVICE_ACCOUNT_JSON:", e.message);
       return new Response(
         JSON.stringify({ reply: "Server configuration error: GOOGLE_SERVICE_ACCOUNT_JSON is not a valid JSON format." }),
         { status: 500, headers: { "Content-Type": "application/json" } }
@@ -62,18 +71,18 @@ export async function onRequestPost(context: any) {
     // 2. Google OAuth2 アクセストークンの取得
     const accessToken = await getGoogleAccessToken(serviceAccount);
     if (!accessToken) {
-      console.error("Failed to obtain Google access token via JWT.");
+      console.error("❌ Failed to obtain Google access token via JWT.");
       return new Response(
         JSON.stringify({ reply: "Failed to authenticate with Google Vertex AI using the provided service account." }),
         { status: 500, headers: { "Content-Type": "application/json" } }
       );
     }
 
-    // 3. 画像生成判定（チェックボックス状態またはvisualPromptの指定のみに完全連動）
+    // 3. 画像生成判定（チェックボックス状態またはvisualPromptの指定に連動）
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
+    console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
     // 4. context.ts の buildAiYamatoContext を呼び出してシステムプロンプトを構築
-    // appType の型エラーを回避するため、文字列として安全に許容される型へキャストまたは調整
     let baseSystemPrompt = buildAiYamatoContext({
       learningPace,
       userNickname,
@@ -81,12 +90,10 @@ export async function onRequestPost(context: any) {
       appType: appType as any
     });
 
-    // もしフロントから追加の systemPrompt があれば結合する
     if (systemPrompt) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
-    // 英語応答の遵守指示と画像生成状況をシステムプロンプトに補強
     baseSystemPrompt += `\n\n<CRITICAL_LANGUAGE_AND_VISUAL_RULES>
 - ABSOLUTE RULE: You MUST write your ENTIRE response strictly in ENGLISH. Japanese is ONLY permitted for target Japanese vocabulary, example sentences, kanji, furigana, or romaji.
 - Do NOT reply in Japanese even if the user asks in Japanese. Explain Japanese concepts clearly in English.
@@ -136,7 +143,7 @@ export async function onRequestPost(context: any) {
 
     if (!vertexResponse.ok) {
       const errorText = await vertexResponse.text();
-      console.error(`Vertex AI API error (${vertexResponse.status}):`, errorText);
+      console.error(`❌ Vertex AI API error (${vertexResponse.status}):`, errorText);
       throw new Error(`Vertex AI API error (${vertexResponse.status}): ${errorText}`);
     }
 
@@ -152,6 +159,7 @@ export async function onRequestPost(context: any) {
     }
 
     if (promptToUse) {
+      console.log("🚀 [chat.ts] 画像生成サービスを呼び出します。プロンプト:", promptToUse);
       try {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
@@ -159,11 +167,16 @@ export async function onRequestPost(context: any) {
           location: region
         });
         if (base64Image) {
+          console.log("✨ [chat.ts] 画像生成成功！データサイズ(Base64):", base64Image.length);
           imageUrl = `data:image/png;base64,${base64Image}`;
+        } else {
+          console.warn("⚠️ [chat.ts] 画像生成は実行されましたが、base64Imageが取得できませんでした。");
         }
       } catch (err: any) {
-        console.error("Image Generation Error in chat.ts:", err.message);
+        console.error("❌ [chat.ts] 画像生成エラー詳細:", err.message, err.stack);
       }
+    } else {
+      console.log("ℹ️ [chat.ts] promptToUse が空のため、画像生成はスキップされました。");
     }
 
     return new Response(
@@ -178,7 +191,7 @@ export async function onRequestPost(context: any) {
     );
 
   } catch (err: any) {
-    console.error("Unhandled Exception in onRequestPost:", err.message, err.stack);
+    console.error("❌ Unhandled Exception in onRequestPost:", err.message, err.stack);
     return new Response(
       JSON.stringify({ 
         reply: "Sorry, I encountered an error while processing your request with AI Yamato.", 

@@ -1,6 +1,6 @@
 /**
  * @file imagen-service.ts
- * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（Remix・Cloudflare対応版）
+ * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（詳細デバッグログ付き）
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -24,15 +24,27 @@ export async function generateVisualAid(
       : promptTextOrOptions;
 
   // 引数で渡された値、または環境変数（利用可能な場合）から取得
+  const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
+
   const projectId =
     options.projectId ||
-    (typeof process !== 'undefined' ? (process.env.VERTEX_AI_PROJECT_ID || process.env.GOOGLE_CLOUD_PROJECT) : undefined);
+    envObj?.VERTEX_AI_PROJECT_ID || 
+    envObj?.GOOGLE_CLOUD_PROJECT;
 
   const location = options.location || "global";
 
   const apiKey =
     options.apiKey ||
-    (typeof process !== 'undefined' ? (process.env.GEMINI_API_KEY || process.env.GOOGLE_GENAI_API_KEY) : undefined);
+    envObj?.GEMINI_API_KEY || 
+    envObj?.GOOGLE_GENAI_API_KEY;
+
+  console.log("🔍 [imagen-service.ts] 初期化パラメータ確認:", {
+    hasProjectId: Boolean(projectId),
+    projectId: projectId ? `${projectId.slice(0, 5)}...` : undefined,
+    location,
+    hasApiKey: Boolean(apiKey),
+    promptLength: options.promptText?.length
+  });
 
   let ai: GoogleGenAI;
 
@@ -53,7 +65,7 @@ export async function generateVisualAid(
   try {
     const modelName = "gemini-3.1-flash-lite-image";
 
-    console.log(`[Imagen Service] Requesting content generation with image model: ${modelName} at location: ${location}`);
+    console.log(`🚀 [imagen-service.ts] 画像生成モデルリクエスト開始: ${modelName} (location: ${location})`);
 
     // 最新仕様に準拠した generateContent による画像生成呼び出し
     const response = await ai.models.generateContent({
@@ -66,31 +78,41 @@ export async function generateVisualAid(
       ],
     });
 
+    console.log("📥 [imagen-service.ts] AIモデルからのレスポンスを受しました。構造を解析します...");
+
     // レスポンスの候補（candidates）から画像パート（inlineData）を抽出
     const candidate = response.candidates?.[0];
     const parts = candidate?.content?.parts;
 
     if (!parts) {
+      console.error("❌ [imagen-service.ts エラー] candidates または parts が存在しません。Response全文:", JSON.stringify(response));
       throw new Error("モデルからの応答パーツが取得できませんでした。");
     }
 
     let base64Image: string | undefined = undefined;
 
-    for (const part of parts) {
+    for (let i = 0; i < parts.length; i++) {
+      const part = parts[i];
+      // インライン画像のデータが含まれているかチェック
       if (part.inlineData && part.inlineData.data) {
         base64Image = part.inlineData.data;
+        console.log(`✨ [imagen-service.ts] パーツ[${i}]で inlineData を検出しました (データ長: ${base64Image.length})`);
         break;
       }
     }
 
     if (!base64Image) {
+      console.error("❌ [imagen-service.ts エラー] レスポンスの各パーツに inlineData.data が見つかりませんでした。Parts:", JSON.stringify(parts));
       throw new Error("生成された画像データ（Base64）がレスポンスに含まれていませんでした。");
     }
 
-    console.log("--- ✅ [Gemini Image Model] Image Generated Successfully ---");
+    console.log("--- ✅ [Gemini Image Model] 画像の生成および抽出に完全に成功しました ---");
     return base64Image;
   } catch (error: any) {
-    console.error("Gemini Image Generation Error Detail:", error);
+    console.error("❌ [imagen-service.ts 例外発生]:", error.message || error);
+    if (error.stack) {
+      console.error("スタックトレース:", error.stack);
+    }
     throw error;
   }
 }
