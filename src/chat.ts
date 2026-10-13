@@ -114,6 +114,7 @@ export async function onRequestPost(context: any) {
     const currentTimeStr = getCurrentTimeString('Australia/Melbourne');
     let weatherInfoStr = "";
     try {
+      // ★修正: getWeatherInfo は非同期関数のため await を追加
       const weather = await getWeatherInfo('melbourne');
       weatherInfoStr = weather ? weather : "Fine, 20°C";
     } catch (e: any) {
