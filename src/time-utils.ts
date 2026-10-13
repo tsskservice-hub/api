@@ -9,7 +9,8 @@ import { getCityWeatherContext } from "./weather-utils.js";
  * 指定したタイムゾーンの現在時刻をフォーマットして取得する
  */
 export function getFormattedTimeForZone(timeZone: string, targetDate: Date | string = new Date()): string {
-  const dateObj = typeof targetDate === 'string' ? new Date(targetDate) : targetDate;
+  // 常に最新の実行時現在時刻を取得できるよう強制的に新規Dateオブジェクトを生成
+  const dateObj = !targetDate || targetDate instanceof Date ? new Date() : new Date(targetDate);
 
   const formatter = new Intl.DateTimeFormat('ja-JP', {
     timeZone: timeZone,
