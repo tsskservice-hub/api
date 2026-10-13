@@ -172,3 +172,25 @@ export async function getCityWeatherContext(cityKeyOrName: string = 'melbourne')
 export async function getMelbourneWeatherContext(): Promise<string> {
   return getCityWeatherContext('melbourne');
 }
+
+/**
+ * chat.tsなどの呼び出し元との互換性のための追加関数
+ */
+export async function getWeatherInfo(cityKeyOrName: string = 'melbourne'): Promise<string | null> {
+  try {
+    const city = await resolveCityInfo(cityKeyOrName);
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${city.lat}&longitude=${city.lon}&current_weather=true&timezone=${encodeURIComponent(city.timezone)}`;
+
+    const response = await fetch(url);
+    if (!response.ok) return null;
+
+    const data: any = await response.json();
+    const current = data.current_weather;
+    if (!current) return null;
+
+    const condition = translateWeatherCode(current.weathercode);
+    return `${condition}, ${current.temperature}°C (${city.nameJP})`;
+  } catch (e) {
+    return null;
+  }
+}

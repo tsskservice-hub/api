@@ -4,7 +4,8 @@
  */
 
 import { buildAiYamatoContext } from './context.js';
-import { buildSystemInstructionWithTimeAndWeather } from './time-utils.js';
+import { getCurrentTimeString } from './time-utils.js';
+import { getWeatherInfo } from './weather-utils.js';
 import { generateVisualAid } from './imagen-service.js';
 
 export async function onRequestPost(context: any) {
@@ -94,22 +95,32 @@ export async function onRequestPost(context: any) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
+    // 5. time-utils と weather-utils を使って時間・天気のコンテキストを生成・結合
+    const currentTimeStr = getCurrentTimeString('melbourne');
+    let weatherInfoStr = "";
+    try {
+      const weather = await getWeatherInfo('melbourne');
+      weatherInfoStr = weather ? `Current Weather in Melbourne: ${weather}` : "";
+    } catch (e: any) {
+      console.warn("⚠️ [chat.ts] 天気情報の取得に失敗しました:", e.message);
+    }
+
+    const timeAndWeatherContext = `\n\n<TIME_AND_WEATHER_CONTEXT>
+- Current Time: ${currentTimeStr}
+${weatherInfoStr ? `- ${weatherInfoStr}` : ""}
+</TIME_AND_WEATHER_CONTEXT>`;
+
+    baseSystemPrompt += timeAndWeatherContext;
+
     baseSystemPrompt += `\n\n<CRITICAL_LANGUAGE_AND_VISUAL_RULES>
 - ABSOLUTE RULE: You MUST write your ENTIRE response strictly in ENGLISH. Japanese is ONLY permitted for target Japanese vocabulary, example sentences, kanji, furigana, or romaji.
 - Do NOT reply in Japanese even if the user asks in Japanese. Explain Japanese concepts clearly in English.
 - VISUAL AID STATUS: ${shouldGenerateImage ? "ENABLED. An educational visual diagram is being generated and attached to your response. Introduce it naturally in English (e.g., 'Here is a visual aid to help illustrate this concept!')." : "DISABLED"}
 </CRITICAL_LANGUAGE_AND_VISUAL_RULES>`;
 
-    // 5. 時間・天気のコンテキスト結合
-    const enhancedSystemPromptText = await buildSystemInstructionWithTimeAndWeather(
-      baseSystemPrompt,
-      undefined,
-      'melbourne'
-    );
-
     const systemInstruction = {
       role: "system",
-      parts: [{ text: enhancedSystemPromptText }]
+      parts: [{ text: baseSystemPrompt }]
     };
 
     const contents = chatHistory.map(h => ({

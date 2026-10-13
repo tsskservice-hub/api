@@ -27,6 +27,14 @@ export function getFormattedTimeForZone(timeZone: string, targetDate: Date | str
 }
 
 /**
+ * chat.tsなどの要求に合わせて現在時刻文字列を取得するヘルパー関数
+ */
+export function getCurrentTimeString(cityKeyOrZone: string = 'Australia/Melbourne', overrideDateStr?: string): string {
+  const zone = cityKeyOrZone.includes('/') ? cityKeyOrZone : 'Australia/Melbourne';
+  return getFormattedTimeForZone(zone, overrideDateStr);
+}
+
+/**
  * メルボルンの現在時刻をAI用のコンテキスト文字列として取得する
  */
 export function getMelbourneTimeContext(overrideDateStr?: string): string {
