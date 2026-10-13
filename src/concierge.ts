@@ -1,6 +1,6 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ正確反映版）
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ・本日のクイズ対応版）
  */
 import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
 import { getFormattedTimeForZone } from "./time-utils";
@@ -11,6 +11,15 @@ import { getCityWeatherContext } from "./weather-utils";
  */
 export interface PortalContextData {
   quizzes?: Array<{ title: string; description: string }>;
+  todayQuiz?: {
+    id: string;
+    topic: string;
+    date: string;
+    question: string;
+    options: string[];
+    answer: number;
+    explanation: string;
+  };
   pricePlans?: Record<string, any>; // price-plans.ts の PRICE_PLANS を受け取る
   creditGuide?: Array<{ item: string; cost: string }>; // クレジット消費ガイドを受け取る
   legalSummary?: string;
@@ -49,6 +58,23 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
     portalData.quizzes && portalData.quizzes.length > 0
       ? portalData.quizzes.map((q) => `  * ${q.title}: ${q.description}`).join("\n")
       : "  * Portal quizzes and interactive games (Mini Shogi, Go, vocabulary typing, Karuta).";
+
+  // ★ 本日のクイズ（todayQuiz）を正確にテキスト化してAIに伝える
+  let todayQuizText = "";
+  if (portalData.todayQuiz) {
+    const q = portalData.todayQuiz;
+    const correctAnswerText = q.options[q.answer] || "";
+    todayQuizText = `
+  - TODAY'S DAILY QUIZ (CRITICAL FACTUAL DATA: Use this exact information when users ask about today's quiz, question, options, or correct answer):
+    * Topic: ${q.topic} (Date: ${q.date})
+    * Question: "${q.question}"
+    * Options: ${q.options.map((opt, idx) => `(${idx})${opt}`).join(", ")}
+    * Correct Answer Index: ${q.answer} (${correctAnswerText})
+    * Explanation: "${q.explanation}"
+      * Guide users warmly through this quiz, encourage them to choose the right option, and explain the cultural background gently using the explanation provided.`;
+  } else {
+    todayQuizText = "  - No specific active quiz loaded for today.";
+  }
 
   // ★ 料金プラン（PRICE_PLANS）を正確にテキスト化してAIに伝える
   let pricingText = "";
@@ -106,6 +132,9 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
     - Interactive Quizzes & Mini-Games:
 ${quizzesText}
       * Guide users playfully and warmly to these games to make learning enjoyable and stress-free.
+
+    - Today's Daily Quiz Data (CRITICAL: Use these exact questions, options, and correct answers when asked about today's quiz):
+${todayQuizText}
 
     - Pricing Plans & Credit System (CRITICAL: Use these exact facts. Do NOT guess or invent other prices like US$5):
 ${pricingText}
