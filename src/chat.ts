@@ -4,7 +4,7 @@
  */
 
 import { buildAiYamatoContext } from './context.js';
-import { buildConciergePrompt } from './concierge.js'; // 追加: コンシェルジュ用プロンプト生成関数のインポート
+import { buildConciergePrompt } from './concierge.js'; // コンシェルジュ用プロンプト生成関数のインポート
 import { getCurrentTimeString } from './time-utils.js';
 import { getWeatherInfo } from './weather-utils.js';
 import { generateVisualAid } from './imagen-service.js';
@@ -21,7 +21,7 @@ export async function onRequestPost(context: any) {
       requestVisualAid?: boolean;
       appType?: string;
       systemPrompt?: string;
-      portalData?: any; // 追加: フロントエンドから送られてくるポータルデータ
+      portalData?: any; // フロントエンドから送られてくるポータルデータ
     };
 
     const { 
@@ -90,8 +90,8 @@ export async function onRequestPost(context: any) {
     let baseSystemPrompt = "";
 
     if (appType === "concierge") {
-      // コンシェルジュ専用のプロンプト生成関数を呼び出し
-      baseSystemPrompt = buildConciergePrompt({
+      // コンシェルジュ専用のプロンプト生成関数を呼び出し (async のため await を付与)
+      baseSystemPrompt = await buildConciergePrompt({
         userNickname,
         currentTurn: chatHistory.length + 1,
         portalData: portalData
@@ -114,9 +114,8 @@ export async function onRequestPost(context: any) {
     const currentTimeStr = getCurrentTimeString('Australia/Melbourne');
     let weatherInfoStr = "";
     try {
-      // ★修正: getWeatherInfo は非同期関数のため await を追加
       const weather = await getWeatherInfo('melbourne');
-      weatherInfoStr = weather ? weather : "Fine, 20°C";
+      weatherInfoStr = weather ? String(weather) : "Fine, 20°C";
     } catch (e: any) {
       console.warn("⚠️ [chat.ts] 天気情報の取得に失敗しました:", e.message);
       weatherInfoStr = "Fine, 20°C";

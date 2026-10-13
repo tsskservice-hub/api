@@ -26,14 +26,23 @@ export interface ConciergePromptOptions extends SystemPromptOptions {
 
 /**
  * コンシェルジュヤマト固有のアイデンティティと、時間・天気・動的ポータルデータを組み込む関数
+ * (※ 非同期関数に変更し、weatherContext の取得に await を追加)
  */
-export function buildConciergePrompt(options: ConciergePromptOptions = {}): string {
+export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
 
-  // time-utils と weather-utils の実際の関数名・仕様に合わせて呼び出し
+  // タイムゾーンと時間の取得
   const timeZone = portalData.timeZone || "Australia/Melbourne";
   const timeContext = getFormattedTimeForZone(timeZone);
-  const weatherContext = getCityWeatherContext(portalData.cityName || "Melbourne");
+
+  // 天気情報の取得（非同期の場合は await が必須です）
+  let weatherContext = "Fine, 20°C";
+  try {
+    const weather = await getCityWeatherContext(portalData.cityName || "Melbourne");
+    weatherContext = weather ? String(weather) : "Fine, 20°C";
+  } catch (e: any) {
+    console.warn("⚠️ [concierge.ts] 天気情報の取得に失敗しました:", e.message);
+  }
 
   // 動的に渡されたクイズ情報をテキストに変換
   const quizzesText =

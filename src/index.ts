@@ -125,7 +125,7 @@ app.post('/chat', async (c) => {
       userNickname?: string;
       appType?: 'concierge' | 'writing' | 'oral' | 'general';
       portalData?: any; // フロントエンドから送られてくるクイズや料金プラン等のデータ
-  }>();
+    }>();
 
     const userMessage = body.message;
     const history = body.history || [];
@@ -150,8 +150,8 @@ app.post('/chat', async (c) => {
     const appType = body.appType || "general";
 
     if (appType === "concierge") {
-      // concierge.ts の関数を呼び出し、ポータルデータやニックネームを渡す
-      systemInstructionText = buildConciergePrompt({
+      // concierge.ts の関数は async のため await を追加
+      systemInstructionText = await buildConciergePrompt({
         userNickname: body.userNickname || "my friend",
         portalData: body.portalData,
         currentTurn: history.length + 1,
