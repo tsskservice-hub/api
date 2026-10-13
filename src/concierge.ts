@@ -1,6 +1,6 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ正確反映版）
  */
 import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
 import { getFormattedTimeForZone } from "./time-utils";
@@ -11,7 +11,8 @@ import { getCityWeatherContext } from "./weather-utils";
  */
 export interface PortalContextData {
   quizzes?: Array<{ title: string; description: string }>;
-  pricingPlans?: Array<{ tier: string; detail: string }>;
+  pricePlans?: Record<string, any>; // price-plans.ts の PRICE_PLANS を受け取る
+  creditGuide?: Array<{ item: string; cost: string }>; // クレジット消費ガイドを受け取る
   legalSummary?: string;
   timeZone?: string;
   cityName?: string;
@@ -26,7 +27,6 @@ export interface ConciergePromptOptions extends SystemPromptOptions {
 
 /**
  * コンシェルジュヤマト固有のアイデンティティと、時間・天気・動的ポータルデータを組み込む関数
- * (※ 非同期関数に変更し、weatherContext の取得に await を追加)
  */
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
@@ -35,7 +35,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   const timeZone = portalData.timeZone || "Australia/Melbourne";
   const timeContext = getFormattedTimeForZone(timeZone);
 
-  // 天気情報の取得（非同期の場合は await が必須です）
+  // 天気情報の取得
   let weatherContext = "Fine, 20°C";
   try {
     const weather = await getCityWeatherContext(portalData.cityName || "Melbourne");
@@ -50,11 +50,35 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
       ? portalData.quizzes.map((q) => `  * ${q.title}: ${q.description}`).join("\n")
       : "  * Portal quizzes and interactive games (Mini Shogi, Go, vocabulary typing, Karuta).";
 
-  // 動的に渡された料金プランをテキストに変換
-  const pricingText =
-    portalData.pricingPlans && portalData.pricingPlans.length > 0
-      ? portalData.pricingPlans.map((p) => `  * ${p.tier}: ${p.detail}`).join("\n")
-      : "  * Flexible access tiers, daily login bonuses, and prepaid options via Gumroad.";
+  // ★ 料金プラン（PRICE_PLANS）を正確にテキスト化してAIに伝える
+  let pricingText = "";
+  if (portalData.pricePlans) {
+    pricingText = Object.entries(portalData.pricePlans)
+      .map(([key, plan]: [string, any]) => {
+        return `  - [${plan.name}] Price: ${plan.price} ${plan.period} (AUD: $${plan.priceAUD}). Badge/Details: ${plan.badge || plan.description}`;
+      })
+      .join("\n");
+  } else {
+    pricingText = `
+  - FREE PLAN: $0 / forever. Daily Quiz & Login Credits (4 credits, valid for 7 days).
+  - STARTER PACK: $10 AUD. 2,000 Credits (1,000 unexpired + 1,000 bonus valid until Oct 29). Ideal for beginners.
+  - STANDARD PACK: $25 AUD. 5,600 Credits (2,800 unexpired + 2,800 bonus valid until Oct 29). Our most popular choice.
+  - PRO INTENSIVIST: $50 AUD. 12,000 Credits (6,000 unexpired + 6,000 bonus valid until Oct 29). For heavy users.`;
+  }
+
+  // ★ クレジット消費ガイドをテキスト化
+  let creditGuideText = "";
+  if (portalData.creditGuide && portalData.creditGuide.length > 0) {
+    creditGuideText = portalData.creditGuide
+      .map((g) => `  - ${g.item}: ${g.cost}`)
+      .join("\n");
+  } else {
+    creditGuideText = `
+  - Text Chat (Q&A / Vocabulary): 1-2 credits / turn
+  - Essay / Genkoyoshi Correctors: 20-30 credits / session
+  - Oral Exam / Voice Roleplay: 15-25 credits / min
+  - Mini Games & Drills: Free / 0.5 credits`;
+  }
 
   // 動的に渡された法的文書の要約
   const legalText =
@@ -79,13 +103,16 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   </current_environmental_context>
 
   <portal_knowledge_base>
-    - Interactive Quizzes & Mini-Games (from quizzes.ts):
+    - Interactive Quizzes & Mini-Games:
 ${quizzesText}
       * Guide users playfully and warmly to these games to make learning enjoyable and stress-free.
 
-    - Pricing & Credit Tiers (from price-plans.ts):
+    - Pricing Plans & Credit System (CRITICAL: Use these exact facts. Do NOT guess or invent other prices like US$5):
 ${pricingText}
-      * Explain plans transparently, gently highlighting what is included in each tier without making the user feel pressured.
+
+    - Credit Consumption Guide (How credits are spent when studying with Yamato):
+${creditGuideText}
+      * Explain clearly that studying and interacting with Yamato consumes credits. When credits run out, users need to buy more packs.
 
     - Legal & Policy Information (Terms of Service, Privacy Policy, Gumroad Purchases):
 ${legalText}
