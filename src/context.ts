@@ -3,7 +3,7 @@
  * @description AIYAMATO の教育者としてのコンテキスト構築および動的インストラクション（APIサーバー専用・データ非依存版）
  */
 
-import { AIYAMATO_SYSTEM_PROMPT } from './system-prompt';
+import { AIYAMATO_BASE_PROMPT as AIYAMATO_SYSTEM_PROMPT, buildBaseSystemPrompt as buildSystemPrompt } from './base-rules';
 
 export interface PersonaContextOptions {
   tone?: string;

@@ -1,9 +1,10 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き・コンシェルジュ対応版）
  */
 
 import { buildAiYamatoContext } from './context.js';
+import { buildConciergePrompt } from './concierge.js'; // 追加: コンシェルジュ用プロンプト生成関数のインポート
 import { getCurrentTimeString } from './time-utils.js';
 import { getWeatherInfo } from './weather-utils.js';
 import { generateVisualAid } from './imagen-service.js';
@@ -20,6 +21,7 @@ export async function onRequestPost(context: any) {
       requestVisualAid?: boolean;
       appType?: string;
       systemPrompt?: string;
+      portalData?: any; // 追加: フロントエンドから送られてくるポータルデータ
     };
 
     const { 
@@ -30,7 +32,8 @@ export async function onRequestPost(context: any) {
       visualPrompt,
       requestVisualAid = false,
       appType = "general",
-      systemPrompt = ""
+      systemPrompt = "",
+      portalData
     } = body;
 
     // 🔍 【デバッグログ】受信したリクエスト内容を確認
@@ -83,13 +86,25 @@ export async function onRequestPost(context: any) {
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
     console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
-    // 4. context.ts の buildAiYamatoContext を呼び出してシステムプロンプトを構築
-    let baseSystemPrompt = buildAiYamatoContext({
-      learningPace,
-      userNickname,
-      dialogueCount: chatHistory.length + 1,
-      appType: appType as any
-    });
+    // 4. appType に応じたシステムプロンプトの構築 (concierge と学習系を分岐)
+    let baseSystemPrompt = "";
+
+    if (appType === "concierge") {
+      // コンシェルジュ専用のプロンプト生成関数を呼び出し
+      baseSystemPrompt = buildConciergePrompt({
+        userNickname,
+        currentTurn: chatHistory.length + 1,
+        portalData: portalData
+      });
+    } else {
+      // 従来の学習系ヤマト（writing, oral, generalなど）
+      baseSystemPrompt = buildAiYamatoContext({
+        learningPace,
+        userNickname,
+        dialogueCount: chatHistory.length + 1,
+        appType: appType as any
+      });
+    }
 
     if (systemPrompt) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;

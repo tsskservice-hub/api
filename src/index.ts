@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
+import { buildConciergePrompt } from './concierge';
 
 // 環境変数の型定義
 type Bindings = {
-  VERTEX_AI_KEY: string;          // サービスアカウントのJSONキー全文
+  VERTEX_AI_KEY: string;         // サービスアカウントのJSONキー全文
   VERTEX_AI_PROJECT_ID: string;   // Google Cloud プロジェクトID
   VERTEX_AI_REGION: string;       // リージョン (例: us-central1)
 };
@@ -15,16 +16,12 @@ app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || '';
 
   // 許可するオリジンの判定条件
-  // 1. jptutoraiyamato.com を含むドメイン (portal.jptutoraiyamato.com, jptutoraiyamato.com など)
-  // 2. Cloudflare Pages等のプレビュー環境 (*.pages.dev)
-  // 3. ローカル開発環境 (localhost または 127.0.0.1)
   const isAllowed = 
     origin.endsWith('jptutoraiyamato.com') ||
     origin.endsWith('.pages.dev') ||
     origin.includes('localhost') ||
     origin.includes('127.0.0.1');
 
-  // 許可されたオリジンであればそのまま返し、なければ安全のためメインドメインを返す
   const allowedOrigin = isAllowed ? origin : 'https://jptutoraiyamato.com';
 
   c.header('Access-Control-Allow-Origin', allowedOrigin);
@@ -46,7 +43,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   try {
     sa = JSON.parse(serviceAccountJson);
   } catch (e: any) {
-    // どんな文字列がVERTEX_AI_KEYに入ってきているのかをプレビュー付きでエラーにする
     const preview = typeof serviceAccountJson === 'string' 
       ? serviceAccountJson.slice(0, 50) 
       : String(serviceAccountJson);
@@ -127,8 +123,9 @@ app.post('/chat', async (c) => {
       assignedQuestion?: string;
       learningPace?: string;
       userNickname?: string;
-      appType?: 'writing' | 'oral' | 'general';
-    }>();
+      appType?: 'concierge' | 'writing' | 'oral' | 'general';
+      portalData?: any; // フロントエンドから送られてくるクイズや料金プラン等のデータ
+  }>();
 
     const userMessage = body.message;
     const history = body.history || [];
@@ -148,14 +145,27 @@ app.post('/chat', async (c) => {
     // 1. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 2. context.ts の関数を使って、ヤマトのシステム指示（プロンプト）を動的に構築
-    const systemInstructionText = buildAiYamatoContext({
-      assignedQuestion: body.assignedQuestion || "",
-      learningPace: body.learningPace || "normal",
-      userNickname: body.userNickname || "生徒さん",
-      appType: body.appType || "general",
-      dialogueCount: history.length + 1,
-    });
+    // 2. appType に応じたプロンプト（システム指示）の動的構築
+    let systemInstructionText = "";
+    const appType = body.appType || "general";
+
+    if (appType === "concierge") {
+      // concierge.ts の関数を呼び出し、ポータルデータやニックネームを渡す
+      systemInstructionText = buildConciergePrompt({
+        userNickname: body.userNickname || "my friend",
+        portalData: body.portalData,
+        currentTurn: history.length + 1,
+      });
+    } else {
+      // 従来の学習系ヤマト（writing, oral, generalなど）
+      systemInstructionText = buildAiYamatoContext({
+        assignedQuestion: body.assignedQuestion || "",
+        learningPace: body.learningPace || "normal",
+        userNickname: body.userNickname || "生徒さん",
+        appType: appType as any,
+        dialogueCount: history.length + 1,
+      });
+    }
 
     // 3. Vertex AI 用の会話履歴データを構築
     const contents = [
