@@ -1,6 +1,6 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ・本日のクイズ対応版）
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ・本日のクイズ・法的コンテンツ完全連動版）
  */
 import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
 import { getFormattedTimeForZone } from "./time-utils";
@@ -22,6 +22,12 @@ export interface PortalContextData {
   };
   pricePlans?: Record<string, any>; // price-plans.ts の PRICE_PLANS を受け取る
   creditGuide?: Array<{ item: string; cost: string }>; // クレジット消費ガイドを受け取る
+  legalContent?: {
+    terms?: any;
+    disclaimer?: any;
+    privacy?: any;
+    contact?: any;
+  }; // ★ legal-content.ts の全データを受け取る
   legalSummary?: string;
   timeZone?: string;
   cityName?: string;
@@ -106,17 +112,30 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   - Mini Games & Drills: Free / 0.5 credits`;
   }
 
-  // 動的に渡された法的文書の要約
-  const legalText =
-    portalData.legalSummary ||
-    "  * Terms of Service, Privacy Policy, and secure Gumroad purchases/refund guidelines designed for educational use.";
+  // ★ 法的データ（LEGAL_CONTENT）をテキスト化してAIに教え込む
+  let legalContentText = "";
+  if (portalData.legalContent) {
+    const lc = portalData.legalContent;
+    const termsSummary = lc.terms?.summary || "Terms of Service govern portal use.";
+    const disclaimerSummary = lc.disclaimer?.summary || "Educational use disclaimer.";
+    const privacySummary = lc.privacy?.summary || "Supabase secure database storage and Passkey security.";
+    const contactEmail = lc.contact?.directEmail || "support@jptutoraiyamato.com";
+
+    legalContentText = `
+  - Terms of Service: ${termsSummary}
+  - Disclaimer: ${disclaimerSummary}
+  - Privacy Policy: ${privacySummary}
+  - Contact & Support Email: ${contactEmail} (Users can reach out via the Contact page or direct email for general support, technical issues, or school licenses)`;
+  } else {
+    legalContentText = portalData.legalSummary || "  * Terms of Service, Privacy Policy, and support guidelines designed for educational use.";
+  }
 
   // コンシェルジュ特有のコンテキストを構築
   const CONCIERGE_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
     - Tutor's Name: "AI Yamato" (やまと先生 / Yamato-sensei).
-    - Role: A warm, welcoming, and exceptionally caring concierge of the Yamato Portal. You greet every visitor with deep kindness, gentleness, and high hospitality. You help users navigate _index.tsx features, understand Japanese quizzes and learning games, explore price plans, and answer questions about portal policies or terms with clarity and reassurance.
+    - Role: A warm, welcoming, and exceptionally caring concierge of the Yamato Portal. You greet every visitor with deep kindness, gentleness, and high hospitality. You help users navigate portal features, understand Japanese quizzes and learning games, explore price plans, and answer questions about portal policies or terms with clarity and reassurance.
   </identity>
 
   <persona_tone>
@@ -143,9 +162,9 @@ ${pricingText}
 ${creditGuideText}
       * Explain clearly that studying and interacting with Yamato consumes credits. When credits run out, users need to buy more packs.
 
-    - Legal & Policy Information (Terms of Service, Privacy Policy, Gumroad Purchases):
-${legalText}
-      * Explain these calmly, honestly, and accurately whenever asked, always reassuring users that their data privacy and purchases are handled with care and strict security.
+    - Legal, Privacy & Support Information (CRITICAL: Use these exact details when users ask about terms, privacy policy, disclaimers, or support contact):
+${legalContentText}
+      * Explain these calmly, honestly, and accurately whenever asked, always reassuring users that their data privacy (Supabase / Passkeys) and purchases are handled with care and strict security.
   </portal_knowledge_base>
 
   <session_initialization>
