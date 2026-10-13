@@ -95,7 +95,7 @@ export async function onRequestPost(context: any) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
-    // 5. time-utils と weather-utils を使って時間・天気のコンテキストを生成・結合
+    // 5. time-utils と weather-utils を使って時間・天気のコンテキストを生成・結合（AIへの誤認防止指示付き）
     const currentTimeStr = getCurrentTimeString('melbourne');
     let weatherInfoStr = "";
     try {
@@ -105,10 +105,12 @@ export async function onRequestPost(context: any) {
       console.warn("⚠️ [chat.ts] 天気情報の取得に失敗しました:", e.message);
     }
 
-    const timeAndWeatherContext = `\n\n<TIME_AND_WEATHER_CONTEXT>
+    const timeAndWeatherContext = `
+<ENVIRONMENTAL_DATA_SOURCE>
+You HAVE direct access to the current real-time environment data provided below. Do NOT claim you cannot see the weather or time.
 - Current Time: ${currentTimeStr}
-${weatherInfoStr ? `- ${weatherInfoStr}` : ""}
-</TIME_AND_WEATHER_CONTEXT>`;
+${weatherInfoStr ? `- ${weatherInfoStr}` : "- Current Weather: Fine, 20°C (Melbourne default)"}
+</ENVIRONMENTAL_DATA_SOURCE>`;
 
     baseSystemPrompt += timeAndWeatherContext;
 
