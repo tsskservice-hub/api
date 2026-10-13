@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き・コンシェルジュ対応版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き・コンシェルジュ対応・価格データ統合版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -42,7 +42,8 @@ export async function onRequestPost(context: any) {
       requestVisualAid,
       visualPrompt,
       appType,
-      learningPace
+      learningPace,
+      hasPortalData: Boolean(portalData)
     });
 
     // Cloudflareの環境変数から設定値を取得
@@ -108,6 +109,18 @@ export async function onRequestPost(context: any) {
 
     if (systemPrompt) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
+    }
+
+    // ★ 4.5. portalData（価格プランやクレジット情報）が渡されている場合、システムプロンプトに明示的に埋め込む
+    if (portalData) {
+      baseSystemPrompt += `\n\n<PORTAL_PRICE_AND_CREDIT_INFO>
+CRITICAL FACTUAL DATA ABOUT PLANS & CREDITS:
+You must understand and accurately explain the following pricing and credit system when asked:
+- The platform uses a Pay-as-you-go / credit purchase model (credits are consumed as students study and interact with Yamato).
+- When credits run out, users need to buy more packs.
+- Here are the actual price plans available:
+${JSON.stringify(portalData, null, 2)}
+</PORTAL_PRICE_AND_CREDIT_INFO>`;
     }
 
     // 5. time-utils と weather-utils を使ってメルボルンの正確な時間・天気のコンテキストを生成・結合
