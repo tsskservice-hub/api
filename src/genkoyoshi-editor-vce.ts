@@ -1,6 +1,6 @@
 /**
  * @file genkoyoshi-editor-vce.ts
- * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（漢字・文法・語彙・テキストタイプ完全連動版）
+ * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（漢字・文法・語彙・テキストタイプ・各種VCE基準データ完全連動版）
  */
 import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
 import { getFormattedTimeForZone } from "./time-utils";
@@ -11,12 +11,16 @@ import { getCityWeatherContext } from "./weather-utils";
  */
 export interface VceGenkoyoshiPortalData {
   studentName?: string;
-  selectedTextType?: string; // 選択されたテキストタイプ（Evaluative, Persuasive, Imaginative 等）
-  studentEssay?: string;     // 現在編集中の文章
-  kanjiList?: Array<any>;    // kanji-list.json のデータを受け取る
+  selectedTextType?: string;     // 選択されたテキストタイプ（Evaluative, Persuasive, Imaginative 等）
+  studentEssay?: string;         // 現在編集中の文章
+  kanjiList?: Array<any>;        // kanji-list.json のデータを受け取る
   textTypes?: Array<{ name?: string; type?: string; description?: string }>; // texttypes.json のデータを受け取る
-  grammarList?: any;         // vce-grammar-list.ts のデータを受け取る
-  vocabList?: Array<any>;    // vce-vocabulary-list.json のデータを受け取る
+  grammarList?: any;             // vce-grammar-list.ts のデータを受け取る
+  vocabList?: Array<any>;        // vce-vocabulary-list.json のデータを受け取る
+  writingStyles?: any;           // writing-styles.ts のデータを受け取る
+  u3o3Descriptor?: any;          // vce-u3o3-descriptor.ts のデータを受け取る
+  u4o3Descriptor?: any;          // vce-u4o3-descriptor.ts のデータを受け取る
+  eoyWrittenCriteria?: any;      // vce-eoy-written-criteria.ts のデータを受け取る
   timeZone?: string;
   cityName?: string;
 }
@@ -47,7 +51,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     console.warn("⚠️ [genkoyoshi-editor-vce.ts] 天気情報の取得に失敗しました:", e.message);
   }
 
-  // ★ テキストタイプデータ（texttypes.json）のテキスト化
+  // 1. テキストタイプデータ（texttypes.json）のテキスト化
   let textTypesText = "";
   if (portalData.textTypes && Array.isArray(portalData.textTypes) && portalData.textTypes.length > 0) {
     textTypesText = portalData.textTypes
@@ -62,7 +66,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
   * Personal / Recount (個人的な回想・手紙)`;
   }
 
-  // ★ VCE文法リスト（vce-grammar-list.ts）のテキスト化
+  // 2. VCE文法リスト（vce-grammar-list.ts）のテキスト化
   let grammarText = "";
   if (portalData.grammarList) {
     if (Array.isArray(portalData.grammarList)) {
@@ -78,10 +82,35 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
-  // ★ 漢字リスト（kanji-list.json）の概要テキスト化
+  // 3. ライティングスタイル（writing-styles.ts）のテキスト化
+  let writingStylesText = "";
+  if (portalData.writingStyles) {
+    if (typeof portalData.writingStyles === 'string') {
+      writingStylesText = portalData.writingStyles;
+    } else if (typeof portalData.writingStyles === 'object') {
+      writingStylesText = JSON.stringify(portalData.writingStyles, null, 2);
+    }
+  } else {
+    writingStylesText = "  * Appropriate Register, tone, honorifics (Keigo), and stylistic conventions for VCE writing tasks.";
+  }
+
+  // 4. Unit 3 Outcome 3 ディスクリプター（vce-u3o3-descriptor.ts）のテキスト化
+  let u3o3Text = portalData.u3o3Descriptor 
+    ? (typeof portalData.u3o3Descriptor === 'string' ? portalData.u3o3Descriptor : JSON.stringify(portalData.u3o3Descriptor, null, 2))
+    : "  * VCE Unit 3 Outcome 3 assessment standards and performance descriptors.";
+
+  // 5. Unit 4 Outcome 3 ディスクリプター（vce-u4o3-descriptor.ts）のテキスト化
+  let u4o3Text = portalData.u4o3Descriptor 
+    ? (typeof portalData.u4o3Descriptor === 'string' ? portalData.u4o3Descriptor : JSON.stringify(portalData.u4o3Descriptor, null, 2))
+    : "  * VCE Unit 4 Outcome 3 assessment standards and performance descriptors.";
+
+  // 6. 期末筆記試験採点基準（vce-eoy-written-criteria.ts）のテキスト化
+  let eoyCriteriaText = portalData.eoyWrittenCriteria 
+    ? (typeof portalData.eoyWrittenCriteria === 'string' ? portalData.eoyWrittenCriteria : JSON.stringify(portalData.eoyWrittenCriteria, null, 2))
+    : "  * VCE End-of-Year Written Examination Assessment Criteria (Content, Grammar, Vocabulary, Structure & Spelling).";
+
+  // 7. 漢字・語彙カウント
   const kanjiCount = portalData.kanjiList && Array.isArray(portalData.kanjiList) ? portalData.kanjiList.length : "Standard VCE Core";
-  
-  // ★ 語彙リスト（vce-vocabulary-list.json）の概要テキスト化
   const vocabCount = portalData.vocabList && Array.isArray(portalData.vocabList) ? portalData.vocabList.length : "VCE Core";
 
   // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
@@ -101,7 +130,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
 <system_context>
   <identity>
     - Tutor's Name: "VCE Genkoyoshi Editor Yamato" (VCE原稿用紙エディターヤマト).
-    - Role: An expert VCE Japanese writing advisor and examiner-style mentor in Victoria, Australia. You help VCE Unit 3 & 4 students refine their essays, check Genkoyoshi formatting (vertical writing, paragraph indentation, punctuation like 「、」 and 「。」), and ensure strict alignment with VCE assessment criteria.
+    - Role: An expert VCE Japanese writing advisor and examiner-style mentor in Victoria, Australia. You help VCE Unit 3 & 4 students refine their essays, check Genkoyoshi formatting (vertical writing, paragraph indentation, punctuation like 「、」 and 「。」), and ensure strict alignment with VCE assessment criteria, unit outcomes, and writing styles.
   </identity>
 
   <persona_tone>
@@ -118,6 +147,9 @@ ${activeSessionContext}
 ${textTypesText}
       * Guide students to adhere strictly to the conventions, Register, and tone required for each VCE text type.
 
+    - Writing Styles & Conventions (writing-styles.ts):
+${writingStylesText}
+
     - VCE Grammar Standards:
 ${grammarText}
       * Encourage students to incorporate sophisticated VCE-level grammar structures rather than relying solely on basic expressions.
@@ -125,13 +157,22 @@ ${grammarText}
     - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}, VCE Vocab Items: ${vocabCount}):
       * Advise students on appropriate kanji usage and advanced vocabulary suitable for VCE external and school-assessed coursework (SACs).
 
+    - Unit Outcomes & Assessment Descriptors:
+      * Unit 3 Outcome 3 Standards:
+${u3o3Text}
+      * Unit 4 Outcome 3 Standards:
+${u4o3Text}
+
+    - End-of-Year Written Examination Assessment Criteria:
+${eoyCriteriaText}
+
     - Coaching Methodology (Socratic Approach - CRITICAL):
       * NEVER rewrite essays directly or provide full model answers.
       * Guide students step-by-step by asking probing questions, pointing out formatting or structural areas to improve, and praising strong expressions to foster independent reasoning.
   </vce_curriculum_knowledge_base>
 
   <session_initialization>
-    - Greeting Style: Welcome the student warmly to the VCE Genkoyoshi workspace. Invite them to paste or type their Japanese writing, specify their text type, and ask for targeted feedback on grammar, kanji, or structure.
+    - Greeting Style: Welcome the student warmly to the VCE Genkoyoshi workspace. Invite them to paste or type their Japanese writing, specify their text type, and ask for targeted feedback on grammar, kanji, or structure according to VCE standards.
   </session_initialization>
 </system_context>
 `.trim();
