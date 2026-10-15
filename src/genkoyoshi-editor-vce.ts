@@ -5,24 +5,30 @@
 import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
 /**
- * フロントエンド（yamato-portal）から動的に渡されるVCE原稿用紙データの型定義
+ * ★ フロントエンド（yamato-portal）から動的に渡されるVCE原稿用紙データのデフォルト雛形（単一のソース・オブ・トゥルース）
+ * このオブジェクトを起点に、型定義とキーの動的抽出を両立させます。
  */
-export interface VceGenkoyoshiPortalData {
-  studentName?: string;
-  selectedTextType?: string;     // 選択されたテキストタイプ（Article, Speech, Letter 等）
-  studentEssay?: string;         // 現在編集中の文章
-  kanjiList?: Array<any>;        // kanji-list.json のデータを受け取る
-  textTypes?: any;               // texttypes.json のデータ（オブジェクト形式）を受け取る
-  grammarList?: any;             // vce-grammar-list.ts のデータを受け取る
-  vocabList?: Array<any>;        // vce-vocabulary-list.json のデータを受け取る
-  writingStyles?: any;           // writing-styles.ts のデータを受け取る
-  u3o3Descriptor?: any;          // vce-u3o3-descriptor.ts のデータを受け取る
-  u4o3Descriptor?: any;          // vce-u4o3-descriptor.ts のデータを受け取る
-  eoyWrittenCriteria?: any;      // vce-eoy-written-criteria.ts のデータを受け取る
-  faqList?: Array<any>;          // 総合FAQデータバンクを受け取る
-  timeZone?: string;
-  cityName?: string;
-}
+export const defaultVcePortalData = {
+  studentName: "",
+  selectedTextType: "",     // 選択されたテキストタイプ（Article, Speech, Letter 等）
+  studentEssay: "",         // 現在編集中の文章
+  kanjiList: [] as Array<any>,        // kanji-list.json のデータを受け取る
+  textTypes: {} as any,               // texttypes.json のデータ（オブジェクト形式）を受け取る
+  grammarList: {} as any,             // vce-grammar-list.ts のデータを受け取る
+  vocabList: [] as Array<any>,        // vce-vocabulary-list.json のデータを受け取る
+  writingStyles: {} as any,           // writing-styles.ts のデータを受け取る
+  u3o3Descriptor: {} as any,          // vce-u3o3-descriptor.ts のデータを受け取る
+  u4o3Descriptor: {} as any,          // vce-u4o3-descriptor.ts のデータを受け取る
+  eoyWrittenCriteria: {} as any,      // vce-eoy-written-criteria.ts のデータを受け取る
+  faqList: [] as Array<any>,          // 総合FAQデータバンクを受け取る
+  timeZone: "",
+  cityName: "",
+};
+
+/**
+ * ★ 上記のデフォルトオブジェクトから自動的に型（TypeScript Interface相当）を生成
+ */
+export type VceGenkoyoshiPortalData = typeof defaultVcePortalData;
 
 /**
  * VCE原稿用紙プロンプト生成用のオプション（ApiPageLayoutオプション + VCEポータルデータ）

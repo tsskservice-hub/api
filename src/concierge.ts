@@ -5,11 +5,12 @@
 import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
 /**
- * フロントエンド（yamato-portal）から動的に渡されるポータルデータの型定義
+ * ★ フロントエンド（yamato-portal）から動的に渡されるポータルデータのデフォルト雛形（単一のソース・オブ・トゥルース）
+ * このオブジェクトを起点に、型定義とキーの動的抽出を両立させます。
  */
-export interface PortalContextData {
-  quizzes?: Array<{ title: string; description: string }>;
-  todayQuiz?: {
+export const defaultPortalContextData = {
+  quizzes: [] as Array<{ title: string; description: string }>,
+  todayQuiz: undefined as undefined | {
     id: string;
     topic: string;
     date: string;
@@ -17,20 +18,25 @@ export interface PortalContextData {
     options: string[];
     answer: number;
     explanation: string;
-  };
-  pricePlans?: Record<string, any>; // price-plans.ts の PRICE_PLANS を受け取る
-  creditGuide?: Array<{ item: string; cost: string }>; // クレジット消費ガイドを受け取る
-  legalContent?: {
+  },
+  pricePlans: {} as Record<string, any>, // price-plans.ts の PRICE_PLANS を受け取る
+  creditGuide: [] as Array<{ item: string; cost: string }>, // クレジット消費ガイドを受け取る
+  legalContent: undefined as undefined | {
     terms?: any;
     disclaimer?: any;
     privacy?: any;
     contact?: any;
-  }; // legal-content.ts の全データを受け取る
-  legalSummary?: string;
-  faqList?: Array<any>; // 総合FAQデータバンクを受け取る
-  timeZone?: string;
-  cityName?: string;
-}
+  }, // legal-content.ts の全データを受け取る
+  legalSummary: "",
+  faqList: [] as Array<any>, // 総合FAQデータバンクを受け取る
+  timeZone: "",
+  cityName: "",
+};
+
+/**
+ * ★ 上記のデフォルトオブジェクトから自動的に型（TypeScript Interface相当）を生成
+ */
+export type PortalContextData = typeof defaultPortalContextData;
 
 /**
  * コンシェルジュプロンプト生成用のオプション（ApiPageLayoutオプション + ポータルデータ）
@@ -43,7 +49,8 @@ export interface ConciergePromptOptions extends ApiPageLayoutOptions {
  * コンシェルジュヤマト固有のアイデンティティと、動的ポータルデータを組み込む関数
  */
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
-  const { portalData = {}, ...baseOptions } = options;
+  // ★ 型エラーが起きないよう、portalData に PortalContextData 型を明示的にキャスト
+  const { portalData = {} as PortalContextData, ...baseOptions } = options;
 
   // 動的に渡されたクイズ情報をテキストに変換
   const quizzesText =
@@ -70,7 +77,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
 
   // 料金プラン（PRICE_PLANS）を正確にテキスト化してAIに伝える
   let pricingText = "";
-  if (portalData.pricePlans) {
+  if (portalData.pricePlans && Object.keys(portalData.pricePlans).length > 0) {
     pricingText = Object.entries(portalData.pricePlans)
       .map(([key, plan]: [string, any]) => {
         return `  - [${plan.name}] Price: ${plan.price} ${plan.period} (AUD: $${plan.priceAUD}). Badge/Details: ${plan.badge || plan.description}`;

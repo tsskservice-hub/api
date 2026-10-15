@@ -1,14 +1,14 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動者FAQ連携対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・動者FAQ連携対応版）
  */
 
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
-import { buildConciergePrompt } from './concierge';
+import { buildConciergePrompt, defaultPortalContextData } from './concierge';
 import { buildGameIgoPrompt } from './game-igo';
 import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general';
-import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce';
+import { buildVceGenkoyoshiPrompt, defaultVcePortalData } from './genkoyoshi-editor-vce';
 import { buildEoyOralDrillPrompt } from './eoy-oral-drill';
 import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
@@ -17,7 +17,7 @@ import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
 // 環境変数の型定義
 type Bindings = {
-  VERTEX_AI_KEY: string;           // サービスアカウントのJSONキー全文
+  VERTEX_AI_KEY: string;            // サービスアカウントのJSONキー全文
   VERTEX_AI_PROJECT_ID: string;    // Google Cloud プロジェクトID
   VERTEX_AI_REGION: string;        // リージョン (例: us-central1)
 };
@@ -38,7 +38,7 @@ app.use('*', async (c, next) => {
   const allowedOrigin = isAllowed ? origin : 'https://jptutoraiyamato.com';
 
   c.header('Access-Control-Allow-Origin', allowedOrigin);
-  c.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   c.header('Access-Control-Allow-Credentials', 'true');
 
@@ -127,6 +127,32 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
+/**
+ * ★ 各ペルソナが受け取る portalData のフィールド一覧を動的に返すスキーマ配信用エンドポイント
+ * GET /api/schema/:appType
+ */
+app.get('/api/schema/:appType', (c) => {
+  const appType = c.req.param('appType');
+  let fields: string[] = [];
+
+  switch (appType) {
+    case 'genkoyoshi-editor-vce':
+      fields = Object.keys(defaultVcePortalData);
+      break;
+    case 'concierge':
+      fields = Object.keys(defaultPortalContextData);
+      break;
+    default:
+      fields = [];
+      break;
+  }
+
+  return c.json({
+    appType,
+    fields,
+  });
+});
+
 // チャット送信用エンドポイント: POST /chat
 app.post('/chat', async (c) => {
   try {
@@ -169,11 +195,10 @@ app.post('/chat', async (c) => {
     // 1. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 2. appType に応じたプロンプト（システム指示）の動的構築（全9ペルソナの完全ルーティング + 総合FAQ連携）
+    // 2. appType に応じたプロンプト（システム指示）の動的構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
-    // portalDataにfaqListが含まれていない場合はトップレベルのfaqListをマージ
     const enrichedPortalData = {
       ...(body.portalData || {}),
       faqList: body.portalData?.faqList || body.faqList || []
@@ -215,7 +240,6 @@ app.post('/chat', async (c) => {
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
       default:
-        // 従来の学習系ヤマト（writing, oral, generalなど）
         systemInstructionText = buildAiYamatoContext({
           assignedQuestion: body.assignedQuestion || "",
           learningPace: body.learningPace || "normal",
@@ -238,7 +262,7 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 4. Vertex AI のエンドポイントへリクエスト送信 (Gemini 2.5 Flash)
+    // 4. Vertex AI のエンドポイントへリクエスト送信
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {
