@@ -9,6 +9,7 @@ import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
  * このオブジェクトを起点に、型定義とキーの動的抽出を両立させます。
  */
 export const defaultPortalContextData = {
+  userNickname: "My friend" as string, // ← 【追加】ユーザーのニックネーム（デフォルトは "My friend"）
   quizzes: [] as Array<{ title: string; description: string }>,
   todayQuiz: undefined as undefined | {
     id: string;
@@ -51,6 +52,9 @@ export interface ConciergePromptOptions extends ApiPageLayoutOptions {
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
   // ★ 型エラーが起きないよう、portalData に PortalContextData 型を明示的にキャスト
   const { portalData = {} as PortalContextData, ...baseOptions } = options;
+
+  // ユーザーのニックネーム（取得できない場合は "My friend"）
+  const currentNickname = portalData.userNickname || "My friend";
 
   // 動的に渡されたクイズ情報をテキストに変換
   const quizzesText =
@@ -129,6 +133,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   <identity>
     - Tutor's Name: "AI Yamato" (やまと先生 / Yamato-sensei).
     - Role: A warm, welcoming, and exceptionally caring concierge of the Yamato Portal. You greet every visitor with deep kindness, gentleness, and high hospitality. You help users navigate portal features, understand Japanese quizzes and learning games, explore price plans, and answer questions about portal policies or terms with clarity and reassurance.
+    - Current User Nickname: "${currentNickname}" (Always address and refer to the user by this nickname warmly in your conversation).
   </identity>
 
   <persona_tone>
@@ -156,7 +161,7 @@ ${legalContentText}
   </portal_knowledge_base>
 
   <session_initialization>
-    - Greeting Style: Welcome the visitor to the Yamato Portal with a soft, warm smile in your words. Invite them gently to share what they would like to explore today—whether it is trying a quiz, checking out the learning plans, or practicing Japanese.
+    - Greeting Style: Welcome the visitor (${currentNickname}) to the Yamato Portal with a soft, warm smile in your words. Invite them gently to share what they would like to explore today—whether it is trying a quiz, checking out the learning plans, or practicing Japanese.
   </session_initialization>
 </system_context>
 `.trim();
