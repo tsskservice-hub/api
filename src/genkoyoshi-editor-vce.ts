@@ -11,10 +11,10 @@ import { getCityWeatherContext } from "./weather-utils";
  */
 export interface VceGenkoyoshiPortalData {
   studentName?: string;
-  selectedTextType?: string;     // 選択されたテキストタイプ（Evaluative, Persuasive, Imaginative 等）
+  selectedTextType?: string;     // 選択されたテキストタイプ（Article, Speech, Letter 等）
   studentEssay?: string;         // 現在編集中の文章
   kanjiList?: Array<any>;        // kanji-list.json のデータを受け取る
-  textTypes?: Array<{ name?: string; type?: string; description?: string }>; // texttypes.json のデータを受け取る
+  textTypes?: any;               // texttypes.json のデータ（オブジェクト形式）を受け取る
   grammarList?: any;             // vce-grammar-list.ts のデータを受け取る
   vocabList?: Array<any>;        // vce-vocabulary-list.json のデータを受け取る
   writingStyles?: any;           // writing-styles.ts のデータを受け取る
@@ -51,19 +51,32 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     console.warn("⚠️ [genkoyoshi-editor-vce.ts] 天気情報の取得に失敗しました:", e.message);
   }
 
-  // 1. テキストタイプデータ（texttypes.json）のテキスト化
+  // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
   let textTypesText = "";
-  if (portalData.textTypes && Array.isArray(portalData.textTypes) && portalData.textTypes.length > 0) {
-    textTypesText = portalData.textTypes
-      .map((t) => `  * ${t.name || t.type}: ${t.description || "VCE text type guideline"}`)
-      .join("\n");
+  if (portalData.textTypes) {
+    if (Array.isArray(portalData.textTypes)) {
+      textTypesText = portalData.textTypes
+        .map((t: any) => `  * ${t.title || t.name || t.type}: ${t.purpose || t.description || "VCE text type format guideline"}`)
+        .join("\n");
+    } else if (typeof portalData.textTypes === 'object') {
+      textTypesText = Object.entries(portalData.textTypes)
+        .map(([key, val]: [string, any]) => {
+          const title = val?.title || key;
+          const purpose = val?.purpose || "";
+          const structure = Array.isArray(val?.structure) ? val.structure.join(" / ") : "";
+          return `  * [${key}] ${title}\n    - Purpose: ${purpose}\n    - Structure/Conventions: ${structure}`;
+        })
+        .join("\n");
+    }
   } else {
+    // デフォルトのVCE主要テキストタイプ（書式）
     textTypesText = `
-  * Evaluative / Reflective (評価・振り返り)
-  * Persuasive / Argumentative (説得・論説)
-  * Imaginative / Creative (創造的・物語)
-  * Informative / Expository (説明・報告)
-  * Personal / Recount (個人的な回想・手紙)`;
+  * Article (記事): Title, Author's name, Introduction, Body, Conclusion. Plain or Polite style.
+  * Speech Script (スピーチ原稿): Title, Greeting (e.g., こんにちは), Introduction, Body, Closing (e.g., ありがとうございました). Polite style.
+  * Personal Letter (手紙): Date, Greeting (e.g., 〇〇さんへ), Body, Closing, Sender name. Polite or Plain style.
+  * Email (Eメール): Recipient name, Subject line, Main text, Sign-off, Sender name. Polite or Plain style.
+  * Journal / Diary (日記): Month, date, day, Weather, Reflective main text. Plain style.
+  * Report (レポート): Title, Author, Objective facts, Structured sections.`;
   }
 
   // 2. VCE文法リスト（vce-grammar-list.ts）のテキスト化
@@ -82,7 +95,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
-  // 3. ライティングスタイル（writing-styles.ts）のテキスト化
+  // 3. ライティングスタイル / 目的（writing-styles.ts）のテキスト化
   let writingStylesText = "";
   if (portalData.writingStyles) {
     if (typeof portalData.writingStyles === 'string') {
@@ -91,7 +104,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
       writingStylesText = JSON.stringify(portalData.writingStyles, null, 2);
     }
   } else {
-    writingStylesText = "  * Appropriate Register, tone, honorifics (Keigo), and stylistic conventions for VCE writing tasks.";
+    writingStylesText = "  * Purpose and styles: Evaluative, Persuasive, Imaginative, Informative, Personal / Recount.";
   }
 
   // 4. Unit 3 Outcome 3 ディスクリプター（vce-u3o3-descriptor.ts）のテキスト化
@@ -118,7 +131,7 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
   if (portalData.selectedTextType || portalData.studentEssay) {
     activeSessionContext = `
   <current_student_work>
-    - Selected Text Type: ${portalData.selectedTextType || "Not specified yet"}
+    - Selected Text Type (Format): ${portalData.selectedTextType || "Not specified yet"}
     - Current Student Essay / Text:
       "${portalData.studentEssay || "No essay provided yet."}"
   </current_student_work>
@@ -143,11 +156,14 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
   </current_environmental_context>
 ${activeSessionContext}
   <vce_curriculum_knowledge_base>
-    - Supported Text Types & Guidelines:
-${textTypesText}
-      * Guide students to adhere strictly to the conventions, Register, and tone required for each VCE text type.
+    - STRICT DISTINCTION RULE (CRITICAL):
+      * **Text Types** refer strictly to the physical format, layout, and conventions of the writing (e.g., Article, Speech script, Personal Letter, Email, Journal/Diary, Report, Story, Message, Review). When a student asks about text types, you MUST explain these specific formats, structures, greetings, and layouts based on the provided data.
+      * **Writing Styles / Kinds of Writing** refer to the purpose or approach of communication (e.g., Persuasive, Evaluative, Imaginative, Informative, Personal). Never confuse text type formats with writing purposes.
 
-    - Writing Styles & Conventions (writing-styles.ts):
+    - Supported Text Types & Format Guidelines (texttypes.json):
+${textTypesText}
+
+    - Writing Styles & Purposes (writing-styles.ts):
 ${writingStylesText}
 
     - VCE Grammar Standards:
@@ -172,7 +188,7 @@ ${eoyCriteriaText}
   </vce_curriculum_knowledge_base>
 
   <session_initialization>
-    - Greeting Style: Welcome the student warmly to the VCE Genkoyoshi workspace. Invite them to paste or type their Japanese writing, specify their text type, and ask for targeted feedback on grammar, kanji, or structure according to VCE standards.
+    - Greeting Style: Welcome the student warmly to the VCE Genkoyoshi workspace. Invite them to paste or type their Japanese writing, specify their text type format, and ask for targeted feedback on grammar, kanji, or structure according to VCE standards.
   </session_initialization>
 </system_context>
 `.trim();
