@@ -1,10 +1,8 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（価格データ・本日のクイズ・法的コンテンツ完全連動版）
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（ApiPageLayout・総合FAQ完全連動版）
  */
-import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
-import { getFormattedTimeForZone } from "./time-utils";
-import { getCityWeatherContext } from "./weather-utils";
+import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
 /**
  * フロントエンド（yamato-portal）から動的に渡されるポータルデータの型定義
@@ -27,37 +25,25 @@ export interface PortalContextData {
     disclaimer?: any;
     privacy?: any;
     contact?: any;
-  }; // ★ legal-content.ts の全データを受け取る
+  }; // legal-content.ts の全データを受け取る
   legalSummary?: string;
+  faqList?: Array<any>; // 総合FAQデータバンクを受け取る
   timeZone?: string;
   cityName?: string;
 }
 
 /**
- * コンシェルジュプロンプト生成用のオプション（共通オプション + ポータルデータ）
+ * コンシェルジュプロンプト生成用のオプション（ApiPageLayoutオプション + ポータルデータ）
  */
-export interface ConciergePromptOptions extends SystemPromptOptions {
+export interface ConciergePromptOptions extends ApiPageLayoutOptions {
   portalData?: PortalContextData;
 }
 
 /**
- * コンシェルジュヤマト固有のアイデンティティと、時間・天気・動的ポータルデータを組み込む関数
+ * コンシェルジュヤマト固有のアイデンティティと、動的ポータルデータを組み込む関数
  */
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
-
-  // タイムゾーンと時間の取得
-  const timeZone = portalData.timeZone || "Australia/Melbourne";
-  const timeContext = getFormattedTimeForZone(timeZone);
-
-  // 天気情報の取得
-  let weatherContext = "Fine, 20°C";
-  try {
-    const weather = await getCityWeatherContext(portalData.cityName || "Melbourne");
-    weatherContext = weather ? String(weather) : "Fine, 20°C";
-  } catch (e: any) {
-    console.warn("⚠️ [concierge.ts] 天気情報の取得に失敗しました:", e.message);
-  }
 
   // 動的に渡されたクイズ情報をテキストに変換
   const quizzesText =
@@ -65,7 +51,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
       ? portalData.quizzes.map((q) => `  * ${q.title}: ${q.description}`).join("\n")
       : "  * Portal quizzes and interactive games (Mini Shogi, Go, vocabulary typing, Karuta).";
 
-  // ★ 本日のクイズ（todayQuiz）を正確にテキスト化してAIに伝える
+  // 本日のクイズ（todayQuiz）を正確にテキスト化してAIに伝える
   let todayQuizText = "";
   if (portalData.todayQuiz) {
     const q = portalData.todayQuiz;
@@ -82,7 +68,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
     todayQuizText = "  - No specific active quiz loaded for today.";
   }
 
-  // ★ 料金プラン（PRICE_PLANS）を正確にテキスト化してAIに伝える
+  // 料金プラン（PRICE_PLANS）を正確にテキスト化してAIに伝える
   let pricingText = "";
   if (portalData.pricePlans) {
     pricingText = Object.entries(portalData.pricePlans)
@@ -98,7 +84,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   - PRO INTENSIVIST: $50 AUD. 12,000 Credits (6,000 unexpired + 6,000 bonus valid until Oct 29). For heavy users.`;
   }
 
-  // ★ クレジット消費ガイドをテキスト化
+  // クレジット消費ガイドをテキスト化
   let creditGuideText = "";
   if (portalData.creditGuide && portalData.creditGuide.length > 0) {
     creditGuideText = portalData.creditGuide
@@ -112,7 +98,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   - Mini Games & Drills: Free / 0.5 credits`;
   }
 
-  // ★ 法的データ（LEGAL_CONTENT）をテキスト化してAIに教え込む
+  // 法的データ（LEGAL_CONTENT）をテキスト化してAIに教え込む
   let legalContentText = "";
   if (portalData.legalContent) {
     const lc = portalData.legalContent;
@@ -130,7 +116,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
     legalContentText = portalData.legalSummary || "  * Terms of Service, Privacy Policy, and support guidelines designed for educational use.";
   }
 
-  // コンシェルジュ特有のコンテキストを構築
+  // コンシェルジュ特有の固有コンテキストを構築
   const CONCIERGE_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
@@ -141,11 +127,6 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   <persona_tone>
     - Tone and Demeanor: Always speak in a gentle, polite, encouraging, and soothing tone. Use warm phrasing that makes the visitor feel safe, supported, and valued. Never be cold or mechanical.
   </persona_tone>
-
-  <current_environmental_context>
-    - Current Time & Date: ${timeContext}
-    - Current Weather: ${weatherContext}
-  </current_environmental_context>
 
   <portal_knowledge_base>
     - Interactive Quizzes & Mini-Games:
@@ -173,7 +154,14 @@ ${legalContentText}
 </system_context>
 `.trim();
 
-  return buildBaseSystemPrompt(CONCIERGE_SPECIFIC_CONTEXT, baseOptions);
+  // ApiPageLayout（PageLayout思想のバックエンド版）を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  return await ApiPageLayout(CONCIERGE_SPECIFIC_CONTEXT, {
+    portalData,
+    faqList: portalData.faqList,
+    timeZone: portalData.timeZone,
+    cityName: portalData.cityName,
+    ...baseOptions,
+  });
 }
 
 export default buildConciergePrompt;

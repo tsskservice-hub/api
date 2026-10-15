@@ -1,3 +1,8 @@
+/**
+ * @file index.ts
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動者FAQ連携対応版）
+ */
+
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
 import { buildConciergePrompt } from './concierge';
@@ -12,9 +17,9 @@ import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
 // 環境変数の型定義
 type Bindings = {
-  VERTEX_AI_KEY: string;         // サービスアカウントのJSONキー全文
-  VERTEX_AI_PROJECT_ID: string;   // Google Cloud プロジェクトID
-  VERTEX_AI_REGION: string;       // リージョン (例: us-central1)
+  VERTEX_AI_KEY: string;           // サービスアカウントのJSONキー全文
+  VERTEX_AI_PROJECT_ID: string;    // Google Cloud プロジェクトID
+  VERTEX_AI_REGION: string;        // リージョン (例: us-central1)
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -143,6 +148,7 @@ app.post('/chat', async (c) => {
         | 'oral-exam-questions' 
         | string;
       portalData?: any; // フロントエンドから送られてくるデータ
+      faqList?: Array<any>; // トップレベルで渡される場合にも対応
     }>();
 
     const userMessage = body.message;
@@ -163,12 +169,20 @@ app.post('/chat', async (c) => {
     // 1. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 2. appType に応じたプロンプト（システム指示）の動的構築（全9ペルソナの完全ルーティング）
+    // 2. appType に応じたプロンプト（システム指示）の動的構築（全9ペルソナの完全ルーティング + 総合FAQ連携）
     let systemInstructionText = "";
     const appType = body.appType || "general";
+    
+    // portalDataにfaqListが含まれていない場合はトップレベルのfaqListをマージ
+    const enrichedPortalData = {
+      ...(body.portalData || {}),
+      faqList: body.portalData?.faqList || body.faqList || []
+    };
+
     const promptOptions = {
       userNickname: body.userNickname || "my friend",
-      portalData: body.portalData,
+      portalData: enrichedPortalData,
+      faqList: enrichedPortalData.faqList,
       currentTurn: history.length + 1,
     };
 

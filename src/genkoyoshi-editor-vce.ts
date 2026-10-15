@@ -1,10 +1,8 @@
 /**
  * @file genkoyoshi-editor-vce.ts
- * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（漢字・文法・語彙・テキストタイプ・各種VCE基準データ完全連動版）
+ * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（ApiPageLayout・各種VCE基準データ完全連動版）
  */
-import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
-import { getFormattedTimeForZone } from "./time-utils";
-import { getCityWeatherContext } from "./weather-utils";
+import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
 /**
  * フロントエンド（yamato-portal）から動的に渡されるVCE原稿用紙データの型定義
@@ -21,14 +19,15 @@ export interface VceGenkoyoshiPortalData {
   u3o3Descriptor?: any;          // vce-u3o3-descriptor.ts のデータを受け取る
   u4o3Descriptor?: any;          // vce-u4o3-descriptor.ts のデータを受け取る
   eoyWrittenCriteria?: any;      // vce-eoy-written-criteria.ts のデータを受け取る
+  faqList?: Array<any>;          // 総合FAQデータバンクを受け取る
   timeZone?: string;
   cityName?: string;
 }
 
 /**
- * VCE原稿用紙プロンプト生成用のオプション（共通オプション + VCEポータルデータ）
+ * VCE原稿用紙プロンプト生成用のオプション（ApiPageLayoutオプション + VCEポータルデータ）
  */
-export interface VceGenkoyoshiPromptOptions extends SystemPromptOptions {
+export interface VceGenkoyoshiPromptOptions extends ApiPageLayoutOptions {
   portalData?: VceGenkoyoshiPortalData;
 }
 
@@ -37,19 +36,6 @@ export interface VceGenkoyoshiPromptOptions extends SystemPromptOptions {
  */
 export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
-
-  // タイムゾーンと時間の取得
-  const timeZone = portalData.timeZone || "Australia/Melbourne";
-  const timeContext = getFormattedTimeForZone(timeZone);
-
-  // 天気情報の取得
-  let weatherContext = "Fine, 20°C";
-  try {
-    const weather = await getCityWeatherContext(portalData.cityName || "Melbourne");
-    weatherContext = weather ? String(weather) : "Fine, 20°C";
-  } catch (e: any) {
-    console.warn("⚠️ [genkoyoshi-editor-vce.ts] 天気情報の取得に失敗しました:", e.message);
-  }
 
   // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
   let textTypesText = "";
@@ -150,10 +136,6 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     - Tone and Demeanor: Professional, encouraging, academic yet warm. Act as an experienced VCE teacher who genuinely wants the student to excel in their SACs and external examinations.
   </persona_tone>
 
-  <current_environmental_context>
-    - Current Time & Date: ${timeContext}
-    - Current Weather: ${weatherContext}
-  </current_environmental_context>
 ${activeSessionContext}
   <vce_curriculum_knowledge_base>
     - STRICT DISTINCTION RULE (CRITICAL):
@@ -193,7 +175,14 @@ ${eoyCriteriaText}
 </system_context>
 `.trim();
 
-  return buildBaseSystemPrompt(VCE_GENKOYOSHI_SPECIFIC_CONTEXT, baseOptions);
+  // ApiPageLayout を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  return await ApiPageLayout(VCE_GENKOYOSHI_SPECIFIC_CONTEXT, {
+    portalData,
+    faqList: portalData.faqList,
+    timeZone: portalData.timeZone,
+    cityName: portalData.cityName,
+    ...baseOptions,
+  });
 }
 
 export default buildVceGenkoyoshiPrompt;

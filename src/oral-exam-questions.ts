@@ -1,16 +1,23 @@
 /**
  * @file oral-exam-questions.ts
- * @description 口頭試験問題ジェネレーターヤマト専用プロンプト生成関数
+ * @description 口頭試験問題ジェネレーターヤマト専用プロンプト生成関数（ApiPageLayout完全連動版）
  */
-import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
+import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
-export interface OralExamQuestionsPromptOptions extends SystemPromptOptions {
-  portalData?: any;
+/**
+ * 口頭試験問題ジェネレーター固有のオプション定義
+ */
+export interface OralExamQuestionsPromptOptions extends ApiPageLayoutOptions {
+  // 独自のオプションがあればここに定義
 }
 
+/**
+ * 口頭試験問題ジェネレーター固有のアイデンティティとコンテキストを構築する関数
+ */
 export async function buildOralExamQuestionsPrompt(options: OralExamQuestionsPromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
 
+  // 口頭試験問題ジェネレーター固有の設定
   const QUESTIONS_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
@@ -21,9 +28,16 @@ export async function buildOralExamQuestionsPrompt(options: OralExamQuestionsPro
     - Tone and Demeanor: Helpful, clear, and informative.
   </persona_tone>
 </system_context>
-`.trim();
+  `.trim();
 
-  return buildBaseSystemPrompt(QUESTIONS_SPECIFIC_CONTEXT, baseOptions);
+  // ApiPageLayout に流し込む
+  return await ApiPageLayout(QUESTIONS_SPECIFIC_CONTEXT, {
+    portalData,
+    faqList: portalData?.faqList,
+    timeZone: portalData?.timeZone,
+    cityName: portalData?.cityName,
+    ...baseOptions,
+  });
 }
 
 export default buildOralExamQuestionsPrompt;

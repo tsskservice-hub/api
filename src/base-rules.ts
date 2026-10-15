@@ -1,6 +1,6 @@
 /**
  * @file base-rules.ts
- * @description 全てのヤマト（AI Yamato）のプロンプトで共有される普遍的なベースルール・ペルソナ定義・置換ユーティリティ
+ * @description 全てのヤマト（AI Yamato）のプロンプトで共有される普遍的なベースルール・ペルソナ定義・置換ユーティリティ（動的FAQ連携版）
  */
 
 export interface SystemPromptOptions {
@@ -15,6 +15,7 @@ export interface SystemPromptOptions {
   isFinalTurn?: boolean | string;
   attachedFiles?: string;
   requestVisualAid?: boolean | string;
+  faqList?: Array<any>; // ★ yamato-portalから動的に渡されるFAQデータを受け取る窓口
 }
 
 /**
@@ -48,6 +49,11 @@ export const AIYAMATO_BASE_PROMPT = `
     - Arrow Notation: ALWAYS use "→" or "->".
   </communication_rules>
 </system_context>
+
+<comprehensive_faq_knowledge_bank>
+  - Purpose: When students ask common questions regarding VCE exams, oral/written tests, genkoyoshi formatting, portal usage, or general Japanese learning, you MUST refer to the following expert guidance and FAQ database to provide consistent, accurate, and professional mentoring:
+__FAQ_KNOWLEDGE_BANK__
+</comprehensive_faq_knowledge_bank>
 
 <time_and_weather_handling>
   - Time & Weather Inquiry Rule: No matter what chat or mode you are in, if the visitor asks about the current time or weather, refer to your time and weather context (provided via time-utils and weather-utils), answer pleasantly and concisely in English in character, and then gently steer the conversation back to your Japanese learning and portal activities.
@@ -88,6 +94,7 @@ export function buildBaseSystemPrompt(
     isFinalTurn = false,
     attachedFiles = "なし",
     requestVisualAid = false,
+    faqList = [],
   } = options;
 
   const isFinalStr =
@@ -102,6 +109,19 @@ export function buildBaseSystemPrompt(
         ? "true"
         : "false"
       : String(requestVisualAid);
+
+  // yamato-portalから動的に渡されたFAQデータをテキスト形式にコンパイルしてプロンプトに組み込む
+  let faqKnowledgeBankText = "";
+  if (faqList && Array.isArray(faqList) && faqList.length > 0) {
+    faqKnowledgeBankText = faqList
+      .map(
+        (faq: any) =>
+          `* ID: ${faq.id || "N/A"} [Category: ${faq.category || "general"}] (Tags: ${faq.tags?.join(", ") || ""})\n  - Q (En): ${faq.questionEn || faq.questions?.[0] || ""}\n  - Q (Jp): ${faq.questionJp || ""}\n  - Expert Guidance & Answer: ${faq.expertGuidance || faq.answerHtml || ""}`
+      )
+      .join("\n\n");
+  } else {
+    faqKnowledgeBankText = "  * No specific FAQ database items passed for this session.";
+  }
 
   // 個別のロール・アイデンティティ定義と共通ルールを結合してプレースホルダーを置換
   const combinedPrompt = `
@@ -121,7 +141,8 @@ ${AIYAMATO_BASE_PROMPT}
     .replace("__CURRENT_TURN__", String(currentTurn))
     .replace("__IS_FINAL_TURN__", isFinalStr)
     .replace("__ATTACHED_FILES__", attachedFiles)
-    .replace("__REQUEST_VISUAL_AID__", requestVisualAidStr);
+    .replace("__REQUEST_VISUAL_AID__", requestVisualAidStr)
+    .replace("__FAQ_KNOWLEDGE_BANK__", faqKnowledgeBankText);
 }
 
 export default AIYAMATO_BASE_PROMPT;

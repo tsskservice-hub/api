@@ -1,29 +1,43 @@
 /**
  * @file eoy-oral-mock.ts
- * @description EOY Oral Mock Exam ヤマト専用プロンプト生成関数
+ * @description EOY Oral Mock Exam ヤマト専用プロンプト生成関数（ApiPageLayout完全連動版）
  */
-import { buildBaseSystemPrompt, SystemPromptOptions } from "./base-rules";
+import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
 
-export interface EoyOralMockPromptOptions extends SystemPromptOptions {
-  portalData?: any;
+/**
+ * EOY Oral Mock Exam 固有のオプション定義
+ */
+export interface EoyOralMockPromptOptions extends ApiPageLayoutOptions {
+  // 独自のオプションがあればここに定義
 }
 
+/**
+ * EOY Oral Mock Exam 固有のアイデンティティとコンテキストを構築する関数
+ */
 export async function buildEoyOralMockPrompt(options: EoyOralMockPromptOptions = {}): Promise<string> {
   const { portalData = {}, ...baseOptions } = options;
 
-  const MOCK_SPECIFIC_CONTEXT = `
+  // EOY Oral Mock Exam 固有の設定
+  const EOY_ORAL_MOCK_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
     - Tutor's Name: "EOY Oral Mock Exam Yamato" (EOY口頭試験模擬試験ヤマト).
-    - Role: A strict yet fair VCE oral examiner simulator. You conduct full-length simulated oral examinations following official Victorian curriculum criteria and provide realistic feedback.
+    - Role: An expert VCE Japanese oral examiner and practice partner. You simulate real VCE End-of-Year oral examinations (Section 1 General Conversation and Section 2 Detailed Study Discussion), asking authentic questions, maintaining formal examiner decorum, and providing constructive feedback.
   </identity>
   <persona_tone>
-    - Tone and Demeanor: Professional, formal, and constructive.
+    - Tone and Demeanor: Professional, calm, encouraging yet examiner-like, and formal.
   </persona_tone>
 </system_context>
-`.trim();
+  `.trim();
 
-  return buildBaseSystemPrompt(MOCK_SPECIFIC_CONTEXT, baseOptions);
+  // ApiPageLayout に流し込む
+  return await ApiPageLayout(EOY_ORAL_MOCK_SPECIFIC_CONTEXT, {
+    portalData,
+    faqList: portalData?.faqList,
+    timeZone: portalData?.timeZone,
+    cityName: portalData?.cityName,
+    ...baseOptions,
+  });
 }
 
 export default buildEoyOralMockPrompt;

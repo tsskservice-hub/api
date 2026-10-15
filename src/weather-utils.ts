@@ -1,6 +1,6 @@
 /**
  * @file weather-utils.ts
- * @description Open-Meteo API（ジオコーディング付き）を使用して、世界中のあらゆる都市の天気予報を取得するユーティリティ（Remix対応版）
+ * @description Open-Meteo API（ジオコーディング付き）を使用して、世界中のあらゆる都市の天気予報を取得するユーティリティ（Foundation層対応版）
  */
 
 export interface CityInfo {
@@ -60,6 +60,8 @@ function translateWeatherCode(code: number): string {
  * 指定された都市名からジオコーディングAPIを使って緯度・経度・タイムゾーンを自動取得する
  */
 async function resolveCityInfo(cityNameOrKey: string): Promise<CityInfo> {
+  if (!cityNameOrKey) return CITIES['melbourne'];
+  
   const normalizedKey = cityNameOrKey.toLowerCase().replace(/[^a-z0-9ぁ-んァ-ン一-龥]/g, '');
   
   // 1. プリセットに含まれていればそれを優先
@@ -85,6 +87,7 @@ async function resolveCityInfo(cityNameOrKey: string): Promise<CityInfo> {
     }
   } catch (e) {
     // 検索失敗時はフォールバックへ
+    console.warn("⚠️ [weather-utils.ts] ジオコーディングに失敗しました:", e);
   }
 
   // 3. どちらもダメな場合はデフォルトでメルボルンを返す
@@ -162,6 +165,7 @@ export async function getCityWeatherContext(cityKeyOrName: string = 'melbourne')
 
     return weatherSummary;
   } catch (error) {
+    console.warn("⚠️ [weather-utils.ts] 天気コンテキストの取得中にエラーが発生しました:", error);
     return '';
   }
 }

@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ完全対応・動的プロンプト切り替え版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ・動的FAQデータベース完全連動版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -30,7 +30,8 @@ export async function onRequestPost(context: any) {
       requestVisualAid?: boolean;
       appType?: string;
       systemPrompt?: string;
-      portalData?: any; // フロントエンドから送られてくるポータルデータ
+      portalData?: any; // フロントエンドから送られてくるポータルデータ（pricePlans, todayQuiz, faqList等を含む）
+      faqList?: Array<any>; // トップレベルで渡される場合にも対応
     };
 
     const { 
@@ -42,7 +43,8 @@ export async function onRequestPost(context: any) {
       requestVisualAid = false,
       appType = "general",
       systemPrompt = "",
-      portalData
+      portalData = {},
+      faqList = []
     } = body;
 
     // 🔍 【デバッグログ】受信したリクエスト内容を確認
@@ -52,7 +54,8 @@ export async function onRequestPost(context: any) {
       visualPrompt,
       appType,
       learningPace,
-      hasPortalData: Boolean(portalData)
+      hasPortalData: Boolean(portalData),
+      hasFaqList: Boolean(portalData?.faqList || faqList)
     });
 
     // Cloudflareの環境変数から設定値を取得
@@ -96,12 +99,20 @@ export async function onRequestPost(context: any) {
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
     console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
-    // 4. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング）
+    // 4. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング + 総合FAQデータの引き渡し）
     let baseSystemPrompt = "";
+    
+    // portalDataにfaqListが含まれていない場合はトップレベルのfaqListをマージ
+    const enrichedPortalData = {
+      ...portalData,
+      faqList: portalData?.faqList || faqList
+    };
+
     const promptOptions = {
       userNickname,
       currentTurn: chatHistory.length + 1,
-      portalData: portalData
+      portalData: enrichedPortalData,
+      faqList: enrichedPortalData.faqList
     };
 
     switch (appType) {
@@ -145,18 +156,6 @@ export async function onRequestPost(context: any) {
 
     if (systemPrompt) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
-    }
-
-    // ★ portalData（価格プランやクレジット情報など）が渡されている場合、コンシェルジュ等のシステムプロンプトに補足
-    if (portalData && appType === "concierge") {
-      baseSystemPrompt += `\n\n<PORTAL_PRICE_AND_CREDIT_INFO>
-CRITICAL FACTUAL DATA ABOUT PLANS & CREDITS:
-You must understand and accurately explain the following pricing and credit system when asked:
-- The platform uses a Pay-as-you-go / credit purchase model (credits are consumed as students study and interact with Yamato).
-- When credits run out, users need to buy more packs.
-- Here are the actual price plans available:
-${JSON.stringify(portalData, null, 2)}
-</PORTAL_PRICE_AND_CREDIT_INFO>`;
     }
 
     // 5. 時間・天気のコンテキストを生成・結合
