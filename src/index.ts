@@ -1,6 +1,14 @@
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
 import { buildConciergePrompt } from './concierge';
+import { buildGameIgoPrompt } from './game-igo';
+import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general';
+import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce';
+import { buildEoyOralDrillPrompt } from './eoy-oral-drill';
+import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
+import { buildEoyOralMockPrompt } from './eoy-oral-mock';
+import { buildEoyWritingPrompt } from './eoy-writing';
+import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
 // 環境変数の型定義
 type Bindings = {
@@ -123,8 +131,18 @@ app.post('/chat', async (c) => {
       assignedQuestion?: string;
       learningPace?: string;
       userNickname?: string;
-      appType?: 'concierge' | 'writing' | 'oral' | 'general';
-      portalData?: any; // フロントエンドから送られてくるクイズや料金プラン等のデータ
+      appType?: 
+        | 'concierge' 
+        | 'game-igo' 
+        | 'genkoyoshi-editor-general' 
+        | 'genkoyoshi-editor-vce' 
+        | 'eoy-oral-drill' 
+        | 'eoy-oral-elaborate' 
+        | 'eoy-oral-mock' 
+        | 'eoy-writing' 
+        | 'oral-exam-questions' 
+        | string;
+      portalData?: any; // フロントエンドから送られてくるデータ
     }>();
 
     const userMessage = body.message;
@@ -145,26 +163,53 @@ app.post('/chat', async (c) => {
     // 1. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 2. appType に応じたプロンプト（システム指示）の動的構築
+    // 2. appType に応じたプロンプト（システム指示）の動的構築（全9ペルソナの完全ルーティング）
     let systemInstructionText = "";
     const appType = body.appType || "general";
+    const promptOptions = {
+      userNickname: body.userNickname || "my friend",
+      portalData: body.portalData,
+      currentTurn: history.length + 1,
+    };
 
-    if (appType === "concierge") {
-      // concierge.ts の関数は async のため await を追加
-      systemInstructionText = await buildConciergePrompt({
-        userNickname: body.userNickname || "my friend",
-        portalData: body.portalData,
-        currentTurn: history.length + 1,
-      });
-    } else {
-      // 従来の学習系ヤマト（writing, oral, generalなど）
-      systemInstructionText = buildAiYamatoContext({
-        assignedQuestion: body.assignedQuestion || "",
-        learningPace: body.learningPace || "normal",
-        userNickname: body.userNickname || "生徒さん",
-        appType: appType as any,
-        dialogueCount: history.length + 1,
-      });
+    switch (appType) {
+      case "concierge":
+        systemInstructionText = await buildConciergePrompt(promptOptions);
+        break;
+      case "game-igo":
+        systemInstructionText = await buildGameIgoPrompt(promptOptions);
+        break;
+      case "genkoyoshi-editor-general":
+        systemInstructionText = await buildGenkoyoshiGeneralPrompt(promptOptions);
+        break;
+      case "genkoyoshi-editor-vce":
+        systemInstructionText = await buildVceGenkoyoshiPrompt(promptOptions);
+        break;
+      case "eoy-oral-drill":
+        systemInstructionText = await buildEoyOralDrillPrompt(promptOptions);
+        break;
+      case "eoy-oral-elaborate":
+        systemInstructionText = await buildEoyOralElaboratePrompt(promptOptions);
+        break;
+      case "eoy-oral-mock":
+        systemInstructionText = await buildEoyOralMockPrompt(promptOptions);
+        break;
+      case "eoy-writing":
+        systemInstructionText = await buildEoyWritingPrompt(promptOptions);
+        break;
+      case "oral-exam-questions":
+        systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
+        break;
+      default:
+        // 従来の学習系ヤマト（writing, oral, generalなど）
+        systemInstructionText = buildAiYamatoContext({
+          assignedQuestion: body.assignedQuestion || "",
+          learningPace: body.learningPace || "normal",
+          userNickname: body.userNickname || "生徒さん",
+          appType: appType as any,
+          dialogueCount: history.length + 1,
+        });
+        break;
     }
 
     // 3. Vertex AI 用の会話履歴データを構築
@@ -179,7 +224,7 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 4. Vertex AI のエンドポイントへリクエスト送信
+    // 4. Vertex AI のエンドポイントへリクエスト送信 (Gemini 2.5 Flash)
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {

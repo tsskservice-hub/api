@@ -1,10 +1,19 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ付き・コンシェルジュ対応・価格データ統合版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ完全対応・動的プロンプト切り替え版）
  */
 
 import { buildAiYamatoContext } from './context.js';
-import { buildConciergePrompt } from './concierge.js'; // コンシェルジュ用プロンプト生成関数のインポート
+import { buildConciergePrompt } from './concierge.js';
+import { buildGameIgoPrompt } from './game-igo.js';
+import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general.js';
+import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce.js';
+import { buildEoyOralDrillPrompt } from './eoy-oral-drill.js';
+import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate.js';
+import { buildEoyOralMockPrompt } from './eoy-oral-mock.js';
+import { buildEoyWritingPrompt } from './eoy-writing.js';
+import { buildOralExamQuestionsPrompt } from './oral-exam-questions.js';
+
 import { getCurrentTimeString } from './time-utils.js';
 import { getWeatherInfo } from './weather-utils.js';
 import { generateVisualAid } from './imagen-service.js';
@@ -83,36 +92,63 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 3. 画像生成判定（チェックボックス状態またはvisualPromptの指定に連動）
+    // 3. 画像生成判定
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
     console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
-    // 4. appType に応じたシステムプロンプトの構築 (concierge と学習系を分岐)
+    // 4. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング）
     let baseSystemPrompt = "";
+    const promptOptions = {
+      userNickname,
+      currentTurn: chatHistory.length + 1,
+      portalData: portalData
+    };
 
-    if (appType === "concierge") {
-      // コンシェルジュ専用のプロンプト生成関数を呼び出し (async のため await を付与)
-      baseSystemPrompt = await buildConciergePrompt({
-        userNickname,
-        currentTurn: chatHistory.length + 1,
-        portalData: portalData
-      });
-    } else {
-      // 従来の学習系ヤマト（writing, oral, generalなど）
-      baseSystemPrompt = buildAiYamatoContext({
-        learningPace,
-        userNickname,
-        dialogueCount: chatHistory.length + 1,
-        appType: appType as any
-      });
+    switch (appType) {
+      case "concierge":
+        baseSystemPrompt = await buildConciergePrompt(promptOptions);
+        break;
+      case "game-igo":
+        baseSystemPrompt = await buildGameIgoPrompt(promptOptions);
+        break;
+      case "genkoyoshi-editor-general":
+        baseSystemPrompt = await buildGenkoyoshiGeneralPrompt(promptOptions);
+        break;
+      case "genkoyoshi-editor-vce":
+        baseSystemPrompt = await buildVceGenkoyoshiPrompt(promptOptions);
+        break;
+      case "eoy-oral-drill":
+        baseSystemPrompt = await buildEoyOralDrillPrompt(promptOptions);
+        break;
+      case "eoy-oral-elaborate":
+        baseSystemPrompt = await buildEoyOralElaboratePrompt(promptOptions);
+        break;
+      case "eoy-oral-mock":
+        baseSystemPrompt = await buildEoyOralMockPrompt(promptOptions);
+        break;
+      case "eoy-writing":
+        baseSystemPrompt = await buildEoyWritingPrompt(promptOptions);
+        break;
+      case "oral-exam-questions":
+        baseSystemPrompt = await buildOralExamQuestionsPrompt(promptOptions);
+        break;
+      default:
+        // フォールバック（従来の学習系ヤマト）
+        baseSystemPrompt = buildAiYamatoContext({
+          learningPace,
+          userNickname,
+          dialogueCount: chatHistory.length + 1,
+          appType: appType as any
+        });
+        break;
     }
 
     if (systemPrompt) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
-    // ★ 4.5. portalData（価格プランやクレジット情報）が渡されている場合、システムプロンプトに明示的に埋め込む
-    if (portalData) {
+    // ★ portalData（価格プランやクレジット情報など）が渡されている場合、コンシェルジュ等のシステムプロンプトに補足
+    if (portalData && appType === "concierge") {
       baseSystemPrompt += `\n\n<PORTAL_PRICE_AND_CREDIT_INFO>
 CRITICAL FACTUAL DATA ABOUT PLANS & CREDITS:
 You must understand and accurately explain the following pricing and credit system when asked:
@@ -123,7 +159,7 @@ ${JSON.stringify(portalData, null, 2)}
 </PORTAL_PRICE_AND_CREDIT_INFO>`;
     }
 
-    // 5. time-utils と weather-utils を使ってメルボルンの正確な時間・天気のコンテキストを生成・結合
+    // 5. 時間・天気のコンテキストを生成・結合
     const currentTimeStr = getCurrentTimeString('Australia/Melbourne');
     let weatherInfoStr = "";
     try {
@@ -143,9 +179,14 @@ CRITICAL FACTUAL DATA: You MUST use the exact real-time data provided below when
 
     baseSystemPrompt += timeAndWeatherContext;
 
+    // 言語・ビジュアルルールの適用（原稿用紙VCE等の専門ツールでは日本語指導を許可）
+    const isVceTool = appType.startsWith("eoy-") || appType === "genkoyoshi-editor-vce" || appType === "oral-exam-questions";
+    const languageRule = isVceTool 
+      ? `- LANGUAGE RULE: Support VCE Japanese students with encouraging feedback. You may provide specific Japanese vocabulary, kanji corrections, and grammar suggestions clearly while maintaining a supportive English/Japanese explanation blend as appropriate for VCE tutoring.`
+      : `- ABSOLUTE RULE: You MUST write your ENTIRE response strictly in ENGLISH. Japanese is ONLY permitted for target Japanese vocabulary, example sentences, kanji, furigana, or romaji.`;
+
     baseSystemPrompt += `\n\n<CRITICAL_LANGUAGE_AND_VISUAL_RULES>
-- ABSOLUTE RULE: You MUST write your ENTIRE response strictly in ENGLISH. Japanese is ONLY permitted for target Japanese vocabulary, example sentences, kanji, furigana, or romaji.
-- Do NOT reply in Japanese even if the user asks in Japanese. Explain Japanese concepts clearly in English.
+${languageRule}
 - VISUAL AID STATUS: ${shouldGenerateImage ? "ENABLED. An educational visual diagram is being generated and attached to your response. Introduce it naturally in English (e.g., 'Here is a visual aid to help illustrate this concept!')." : "DISABLED"}
 </CRITICAL_LANGUAGE_AND_VISUAL_RULES>`;
 
@@ -192,7 +233,7 @@ CRITICAL FACTUAL DATA: You MUST use the exact real-time data provided below when
     const vertexData = await vertexResponse.json() as any;
     const aiReply = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
 
-    // 7. 画像生成の実行 (チェックボックスがONの場合にのみ実行)
+    // 7. 画像生成の実行
     let imageUrl: string | undefined = undefined;
     let promptToUse = visualPrompt;
 
