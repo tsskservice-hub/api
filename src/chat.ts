@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（未ログイン完全ガード・サーバーサイドクレジットガード完全連動版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ・クレジット減算確実実行版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -61,6 +61,7 @@ export async function onRequestPost(context: any) {
       appType,
       learningPace,
       hasUserId: Boolean(userId),
+      userIdValue: userId,
       hasPortalData: Boolean(portalData),
       hasFaqList: Boolean(portalData?.faqList || faqList)
     });
@@ -95,6 +96,7 @@ export async function onRequestPost(context: any) {
     // 💡 1. 画像生成が含まれるリクエストかどうかを事前に判定し、機能キー（textAi または imageAi）を確定
     const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
     const featureKey: FeatureKey = shouldGenerateImage ? 'imageAi' : 'textAi';
+    console.log(`🪙 [chat.ts] 判定された機能キー (featureKey): ${featureKey}`);
 
     let supabaseAdmin: any = null;
 
@@ -102,6 +104,8 @@ export async function onRequestPost(context: any) {
     try {
       supabaseAdmin = getSupabaseAdmin(env);
       const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, userId, featureKey);
+
+      console.log(`🪙 [chat.ts] クレジット検証結果 - ユーザー: ${userId}, 現在: ${currentCredits}, 必要: ${requiredCredits}, 十分か: ${hasEnough}`);
 
       if (!hasEnough) {
         console.warn(`⚠️ [chat.ts] クレジット不足: ユーザー ${userId}, 現在残高: ${currentCredits}, 必要残高: ${requiredCredits} (${featureKey})`);
@@ -116,7 +120,7 @@ export async function onRequestPost(context: any) {
         );
       }
     } catch (dbErr: any) {
-      console.error("❌ [chat.ts] クレジット検証中のデータベースエラー:", dbErr.message);
+      console.error("❌ [chat.ts] クレジット検証中のデータベースエラー:", dbErr.message, dbErr.stack);
       return new Response(
         JSON.stringify({ reply: "Failed to verify user credit balance due to a database error." }),
         { status: 500, headers: { "Content-Type": "application/json" } }
@@ -306,12 +310,19 @@ ${languageRule}
       console.log("ℹ️ [chat.ts] promptToUse が空のため、画像生成はスキップされました。");
     }
 
-    // 💡 9. AI処理が完全に成功した後にクレジットを安全に減算し、監査ログを記録
-    if (supabaseAdmin) {
+    // 💡 9. AI処理が完全に成功した後にクレジットを確実に減算し、詳細ログを記録
+    if (userId && supabaseAdmin) {
+      console.log(`🪙 [chat.ts] ユーザー ${userId} のクレジットを減算します (featureKey: ${featureKey})...`);
       const deductResult = await deductUserCredits(supabaseAdmin, userId, featureKey);
+      console.log("🪙 [chat.ts] 減算実行結果:", deductResult);
+
       if (!deductResult.success) {
-        console.warn("⚠️ [chat.ts] クレジットの減算に失敗しましたが、AIの応答処理自体は完了しました:", deductResult.error);
+        console.error("❌ [chat.ts] クレジットの減算に失敗しました:", deductResult.error);
+      } else {
+        console.log(`✨ [chat.ts] クレジット減算成功！ 残高: ${deductResult.newBalance}`);
       }
+    } else {
+      console.warn("⚠️ [chat.ts] supabaseAdmin または userId が存在しないため、クレジット減算がスキップされました。");
     }
 
     return new Response(

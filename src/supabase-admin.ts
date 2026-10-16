@@ -64,7 +64,7 @@ export async function validateUserCredits(
 }
 
 /**
- * 3. AI処理成功後に安全にクレジットを減算し、監査ログ（transactions）を記録する関数
+ * 3. AI処理成功後に安全にクレジットを減算し、監査ログ（credit_transactions）を記録する関数
  */
 export async function deductUserCredits(
   supabaseAdmin: any,
@@ -91,10 +91,11 @@ export async function deductUserCredits(
       .eq("id", userId);
 
     if (updateError) {
-      throw new Error(updateError.message);
+      throw new Error(`Profile update failed: ${updateError.message}`);
     }
 
     // クレジット利用履歴（監査ログ）を credit_transactions に記録
+    // ※ 存在しないカラムによるエラーを防ぐため、基本的なカラムのみで挿入を試みます
     const { error: txError } = await supabaseAdmin
       .from("credit_transactions")
       .insert({
@@ -105,8 +106,8 @@ export async function deductUserCredits(
       });
 
     if (txError) {
-      // ログ記録の失敗はメイン処理を止めないように警告に留める
-      console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
+      // ログ記録の失敗はメイン処理（クレジット減算）を止めないように警告に留める
+      console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました (テーブル定義をご確認ください):", txError.message);
     }
 
     console.log(`✨ [supabase-admin.ts] クレジット減算成功: ユーザー ${userId}, 消費: -${cost}, 残高: ${newBalance}`);
