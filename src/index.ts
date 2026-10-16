@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・動者FAQ連携対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・クレジット減算完全統合版）
  */
 
 import { Hono } from 'hono';
@@ -15,20 +15,27 @@ import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
-// 環境変数の型定義
+// 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理のインポート
+import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
+import { FeatureKey } from './credit-rules';
+
+// 環境変数の型定義（柔軟なキー名に対応）
 type Bindings = {
-  VERTEX_AI_KEY: string;            // サービスアカウントのJSONキー全文
-  VERTEX_AI_PROJECT_ID: string;    // Google Cloud プロジェクトID
-  VERTEX_AI_REGION: string;        // リージョン (例: us-central1)
+  VERTEX_AI_KEY?: string;
+  GOOGLE_SERVICE_ACCOUNT_JSON?: string;
+  VERTEX_AI_PROJECT_ID: string;
+  VERTEX_AI_REGION?: string;
+  SUPABASE_URL?: string;
+  VITE_SUPABASE_URL?: string;
+  SUPABASE_SERVICE_ROLE_KEY?: string;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// CORS設定（jptutoraiyamato.comおよび開発・プレビュー環境からのアクセスを安全に制御）
+// CORS設定
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || '';
 
-  // 許可するオリジンの判定条件
   const isAllowed = 
     origin.endsWith('jptutoraiyamato.com') ||
     origin.endsWith('.pages.dev') ||
@@ -59,7 +66,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
     const preview = typeof serviceAccountJson === 'string' 
       ? serviceAccountJson.slice(0, 50) 
       : String(serviceAccountJson);
-    throw new Error(`VERTEX_AI_KEY JSON parse failed. Received preview: "${preview}" | Original error: ${e.message}`);
+    throw new Error(`Service Account JSON parse failed. Received preview: "${preview}" | Original error: ${e.message}`);
   }
 
   const privateKeyPem = sa.private_key;
@@ -68,7 +75,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const now = Math.floor(Date.now() / 1000);
   const exp = now + 3600; // 有効期限 1時間
 
-  // 1. JWT Header & Claim Set の作成
   const header = { alg: "RS256", typ: "JWT" };
   const claimSet = {
     iss: clientEmail,
@@ -83,7 +89,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
 
   const unsignedJwt = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claimSet))}`;
 
-  // 2. PEM形式の秘密鍵をWeb Crypto APIで使えるようにパース
   const pemHeader = "-----BEGIN PRIVATE KEY-----";
   const pemFooter = "-----END PRIVATE KEY-----";
   let pemContents = privateKeyPem.replace(pemHeader, "").replace(pemFooter, "").replace(/\s/g, "");
@@ -101,7 +106,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
     ["sign"]
   );
 
-  // 3. 署名の生成 (RS256)
   const signature = await crypto.subtle.sign(
     "RSASSA-PKCS1-v1_5",
     key,
@@ -111,7 +115,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const signatureBase64Url = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
   const jwt = `${unsignedJwt}.${signatureBase64Url}`;
 
-  // 4. Google OAuth2 トークンエンドポイントへリクエスト
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -127,10 +130,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-/**
- * ★ 各ペルソナが受け取る portalData のフィールド一覧を動的に返すスキーマ配信用エンドポイント
- * GET /api/schema/:appType
- */
+// スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   let fields: string[] = [];
@@ -147,55 +147,72 @@ app.get('/api/schema/:appType', (c) => {
       break;
   }
 
-  return c.json({
-    appType,
-    fields,
-  });
+  return c.json({ appType, fields });
 });
 
-// チャット送信用エンドポイント: POST /chat
+// チャット送信用エンドポイント: POST /chat（クレジット検証・減算統合版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
       message: string; 
-      history?: { role: string; content: string }[];
+      chatHistory?: { role: string; content: string }[];
+      history?: { role: string; content: string }[]; // 互換性のため両方対応
       assignedQuestion?: string;
       learningPace?: string;
       userNickname?: string;
-      appType?: 
-        | 'concierge' 
-        | 'game-igo' 
-        | 'genkoyoshi-editor-general' 
-        | 'genkoyoshi-editor-vce' 
-        | 'eoy-oral-drill' 
-        | 'eoy-oral-elaborate' 
-        | 'eoy-oral-mock' 
-        | 'eoy-writing' 
-        | 'oral-exam-questions' 
-        | string;
-      portalData?: any; // フロントエンドから送られてくるデータ
-      faqList?: Array<any>; // トップレベルで渡される場合にも対応
+      appType?: string;
+      portalData?: any;
+      faqList?: Array<any>;
+      userId?: string; // 💡 ユーザーID
     }>();
 
     const userMessage = body.message;
-    const history = body.history || [];
+    const history = body.chatHistory || body.history || [];
 
     if (!userMessage) {
       return c.json({ error: 'Message is required' }, 400);
     }
 
-    const serviceAccountKey = c.env.VERTEX_AI_KEY;
+    // 💡 0. 未ログインガード
+    if (!body.userId) {
+      return c.json({ error: "Unauthorized", reply: "Authentication required to chat." }, 401);
+    }
+
+    // 環境変数のフォールバック取得
+    const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const projectId = c.env.VERTEX_AI_PROJECT_ID;
     const region = c.env.VERTEX_AI_REGION || "us-central1";
 
     if (!serviceAccountKey || !projectId) {
-      return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured' }, 500);
+      console.error("❌ Configuration error: VERTEX_AI_KEY/GOOGLE_SERVICE_ACCOUNT_JSON or VERTEX_AI_PROJECT_ID is missing.");
+      return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 1. サービスアカウントからアクセストークンを取得
+    // 💡 1. サーバーサイドでのクレジット残高検証
+    const featureKey: FeatureKey = 'textAi';
+    let supabaseAdmin: any = null;
+
+    try {
+      supabaseAdmin = getSupabaseAdmin(c.env);
+      const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, body.userId, featureKey);
+
+      if (!hasEnough) {
+        return c.json({
+          reply: `Your current credit balance (${currentCredits} credits) is below the required amount (${requiredCredits} credits). Please top up or complete today's quiz!`,
+          error: "Insufficient credits",
+          required: requiredCredits,
+          current: currentCredits
+        }, 402);
+      }
+    } catch (dbErr: any) {
+      console.error("❌ Database error during credit validation:", dbErr.message);
+      return c.json({ error: "Database error during credit check", reply: "Failed to verify credit balance." }, 500);
+    }
+
+    // 2. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 2. appType に応じたプロンプト（システム指示）の動的構築
+    // 3. システム指示の動的構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
@@ -250,7 +267,7 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 3. Vertex AI 用の会話履歴データを構築
+    // 4. Vertex AI 用の会話履歴データを構築
     const contents = [
       ...history.map((h) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
@@ -262,7 +279,7 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 4. Vertex AI のエンドポイントへリクエスト送信
+    // 5. Vertex AI のエンドポイントへリクエスト送信
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {
@@ -287,10 +304,21 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
+    // 💡 6. AI処理成功後にクレジットを安全に減算
+    if (supabaseAdmin && body.userId) {
+      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
+      if (!deductResult.success) {
+        console.warn("⚠️ Credit deduction failed after successful AI response:", deductResult.error);
+      } else {
+        console.log(`✨ Credit deducted successfully. New balance: ${deductResult.newBalance}`);
+      }
+    }
+
     return c.json({ reply });
 
   } catch (e: any) {
-    return c.json({ error: e.message || 'Internal Server Error' }, 500);
+    console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
+    return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
 });
 
