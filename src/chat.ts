@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（詳細デバッグログ・クレジット減算確実実行版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（送信時クレジット減算・回答閲覧保持対応版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -127,7 +127,27 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 3. サービスアカウントJSONのパース
+    // 💡 3. 【仕様変更】メッセージ送信の処理開始直後（AI呼び出しの前）にクレジットを減算する
+    // これにより、5回目の送信時にクレジットが 0 になりますが、AIの返答自体は最後まで正常に返され、
+    // ユーザーは最後の回答をじっくり読むことができます。次にチャットを送ろうとした時に初めて残高不足画面になります。
+    if (userId && supabaseAdmin) {
+      console.log(`🪙 [chat.ts] ユーザー ${userId} のクレジットを事前減算します (featureKey: ${featureKey})...`);
+      const deductResult = await deductUserCredits(supabaseAdmin, userId, featureKey);
+      if (!deductResult.success) {
+        console.warn("⚠️ [chat.ts] クレジットの減算に失敗しました:", deductResult.error);
+        return new Response(
+          JSON.stringify({
+            reply: `Failed to deduct credits. Please check your balance.`,
+            error: "Credit deduction failed",
+          }),
+          { status: 402, headers: { "Content-Type": "application/json" } }
+        );
+      } else {
+        console.log(`✨ [chat.ts] クレジット事前減算成功！ 残高: ${deductResult.newBalance}`);
+      }
+    }
+
+    // 4. サービスアカウントJSONのパース
     let serviceAccount: any;
     try {
       serviceAccount = JSON.parse(serviceAccountJsonStr);
@@ -139,7 +159,7 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 4. Google OAuth2 アクセストークンの取得
+    // 5. Google OAuth2 アクセストークンの取得
     const accessToken = await getGoogleAccessToken(serviceAccount);
     if (!accessToken) {
       console.error("❌ Failed to obtain Google access token via JWT.");
@@ -151,7 +171,7 @@ export async function onRequestPost(context: any) {
 
     console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
-    // 5. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング + 総合FAQデータの引き渡し）
+    // 6. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング + 総合FAQデータの引き渡し）
     let baseSystemPrompt = "";
     
     const enrichedPortalData = {
@@ -208,7 +228,7 @@ export async function onRequestPost(context: any) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
-    // 6. 時間・天気のコンテキストを生成・結合
+    // 7. 時間・天気のコンテキストを生成・結合
     const currentTimeStr = getCurrentTimeString('Australia/Melbourne');
     let weatherInfoStr = "";
     try {
@@ -252,7 +272,7 @@ ${languageRule}
       parts: [{ text: message }]
     });
 
-    // 7. Vertex AI テキスト生成エンドポイント呼び出し (Gemini 2.5 Flash)
+    // 8. Vertex AI テキスト生成エンドポイント呼び出し (Gemini 2.5 Flash)
     const modelId = "gemini-2.5-flash";
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${modelId}:generateContent`;
 
@@ -281,7 +301,7 @@ ${languageRule}
     const vertexData = await vertexResponse.json() as any;
     const aiReply = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
 
-    // 8. 画像生成の実行
+    // 9. 画像生成の実行
     let imageUrl: string | undefined = undefined;
     let promptToUse = visualPrompt;
 
@@ -308,21 +328,6 @@ ${languageRule}
       }
     } else {
       console.log("ℹ️ [chat.ts] promptToUse が空のため、画像生成はスキップされました。");
-    }
-
-    // 💡 9. AI処理が完全に成功した後にクレジットを確実に減算し、詳細ログを記録
-    if (userId && supabaseAdmin) {
-      console.log(`🪙 [chat.ts] ユーザー ${userId} のクレジットを減算します (featureKey: ${featureKey})...`);
-      const deductResult = await deductUserCredits(supabaseAdmin, userId, featureKey);
-      console.log("🪙 [chat.ts] 減算実行結果:", deductResult);
-
-      if (!deductResult.success) {
-        console.error("❌ [chat.ts] クレジットの減算に失敗しました:", deductResult.error);
-      } else {
-        console.log(`✨ [chat.ts] クレジット減算成功！ 残高: ${deductResult.newBalance}`);
-      }
-    } else {
-      console.warn("⚠️ [chat.ts] supabaseAdmin または userId が存在しないため、クレジット減算がスキップされました。");
     }
 
     return new Response(
