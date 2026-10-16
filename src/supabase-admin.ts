@@ -64,7 +64,7 @@ export async function validateUserCredits(
 }
 
 /**
- * 3. AI処理成功後に安全にクレジットを減算し、監査ログ（credit_transactions）を記録する関数
+ * 3. クレジットを安全に減算し、監査ログ（credit_transactions）を記録する関数
  */
 export async function deductUserCredits(
   supabaseAdmin: any,
