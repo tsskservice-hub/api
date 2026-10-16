@@ -17,3 +17,6 @@ Thumbs.db
 
 # VS Codeの設定ファイル（必要に応じて除外。個人設定を残したい場合はコメントアウトでも可）
 .vscode/
+
+
+service-account.json

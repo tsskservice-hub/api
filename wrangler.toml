@@ -10,3 +10,4 @@ routes = [
 VERTEX_AI_PROJECT_ID = "my-vertex-ai-production"
 VERTEX_AI_REGION = "us-central1"
 SUPABASE_SERVICE_ROLE_KEY = "sb_secret_EGmFIRlLGXfZIgveAmc4Lw_w33Uppsh"
+SUPABASE_URL = https://ybquwzoreecxxbewjpdn.supabase.co
