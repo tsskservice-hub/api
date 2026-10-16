@@ -1,6 +1,6 @@
 /**
  * @file supabase-admin.ts
- * @description Cloudflare Workers / API環境用の Supabase 管理者クライアントおよびクレジット処理ヘルパー
+ * @description Cloudflare Workers / API環境用の Supabase 管理者クライアントおよびクレジット処理ヘルパー（自動プロファイル修復対応版）
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -29,17 +29,35 @@ export function getSupabaseAdmin(env: any) {
 
 /**
  * 1. サーバー側でユーザーの最新クレジット残高をデータベースから直接取得する関数
+ * （プロファイルが存在しない場合は自動的に初期作成するセーフティ機能付き）
  */
 export async function fetchUserCredits(supabaseAdmin: any, userId: string): Promise<number> {
   const { data, error } = await supabaseAdmin
     .from("profiles")
     .select("credits")
     .eq("id", userId)
-    .single();
+    .maybeSingle(); // .single() だとデータが無い場合にエラーになるため .maybeSingle() を使用
 
-  if (error || !data) {
-    console.error("❌ [supabase-admin.ts] ユーザー残高の取得に失敗しました:", error?.message);
-    throw new Error("ユーザーのプロファイル情報が取得できませんでした。");
+  if (error) {
+    console.error("❌ [supabase-admin.ts] ユーザー残高の取得に失敗しました:", error.message);
+    throw new Error(`ユーザーのプロファイル情報取得エラー: ${error.message}`);
+  }
+
+  // プロファイルレコードがまだ存在しない場合の自動初期化（10クレジット付与）
+  if (!data) {
+    console.warn(`⚠️ [supabase-admin.ts] ユーザー ${userId} のプロファイルが見つからないため、初期作成します。`);
+    const { data: insertData, error: insertError } = await supabaseAdmin
+      .from("profiles")
+      .insert({ id: userId, credits: 10 })
+      .select("credits")
+      .single();
+
+    if (insertError || !insertData) {
+      console.error("❌ [supabase-admin.ts] 初期プロファイルの作成に失敗しました:", insertError?.message);
+      throw new Error("初期プロファイルの作成に失敗しました。");
+    }
+
+    return insertData.credits ?? 10;
   }
 
   return data.credits ?? 0;
@@ -95,7 +113,6 @@ export async function deductUserCredits(
     }
 
     // クレジット利用履歴（監査ログ）を credit_transactions に記録
-    // ※ 存在しないカラムによるエラーを防ぐため、基本的なカラムのみで挿入を試みます
     const { error: txError } = await supabaseAdmin
       .from("credit_transactions")
       .insert({
@@ -106,8 +123,7 @@ export async function deductUserCredits(
       });
 
     if (txError) {
-      // ログ記録の失敗はメイン処理（クレジット減算）を止めないように警告に留める
-      console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました (テーブル定義をご確認ください):", txError.message);
+      console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
     }
 
     console.log(`✨ [supabase-admin.ts] クレジット減算成功: ユーザー ${userId}, 消費: -${cost}, 残高: ${newBalance}`);
