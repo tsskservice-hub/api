@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ・動的FAQデータベース完全連動版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ・動的FAQデータベース・サーバーサイドクレジットガード完全連動版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -18,6 +18,10 @@ import { getCurrentTimeString } from './time-utils.js';
 import { getWeatherInfo } from './weather-utils.js';
 import { generateVisualAid } from './imagen-service.js';
 
+// 💡 サーバーサイド用クレジット管理モジュールのインポート
+import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin.js';
+import { FeatureKey } from './credit-rules.js';
+
 export async function onRequestPost(context: any) {
   try {
     const { request, env } = context;
@@ -30,8 +34,9 @@ export async function onRequestPost(context: any) {
       requestVisualAid?: boolean;
       appType?: string;
       systemPrompt?: string;
-      portalData?: any; // フロントエンドから送られてくるポータルデータ（pricePlans, todayQuiz, faqList等を含む）
+      portalData?: any; // フロントエンドから送られてくるポータルデータ
       faqList?: Array<any>; // トップレベルで渡される場合にも対応
+      userId?: string; // ★ 追加：クレジット検証用ユーザーID
     };
 
     const { 
@@ -44,7 +49,8 @@ export async function onRequestPost(context: any) {
       appType = "general",
       systemPrompt = "",
       portalData = {},
-      faqList = []
+      faqList = [],
+      userId
     } = body;
 
     // 🔍 【デバッグログ】受信したリクエスト内容を確認
@@ -54,6 +60,7 @@ export async function onRequestPost(context: any) {
       visualPrompt,
       appType,
       learningPace,
+      hasUserId: Boolean(userId),
       hasPortalData: Boolean(portalData),
       hasFaqList: Boolean(portalData?.faqList || faqList)
     });
@@ -73,7 +80,40 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 1. サービスアカウントJSONのパース
+    // 💡 1. 画像生成が含まれるリクエストかどうかを事前に判定し、機能キー（textAi または imageAi）を確定
+    const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
+    const featureKey: FeatureKey = shouldGenerateImage ? 'imageAi' : 'textAi';
+
+    let supabaseAdmin: any = null;
+
+    // 💡 2. サーバーサイドでのクレジット残高検証（バックエンドガード）
+    if (userId) {
+      try {
+        supabaseAdmin = getSupabaseAdmin(env);
+        const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, userId, featureKey);
+
+        if (!hasEnough) {
+          console.warn(`⚠️ [chat.ts] クレジット不足: ユーザー ${userId}, 現在残高: ${currentCredits}, 必要残高: ${requiredCredits} (${featureKey})`);
+          return new Response(
+            JSON.stringify({
+              reply: `Your current credit balance (${currentCredits} credits) is below the required amount (${requiredCredits} credits) for this feature. Please top up or complete today's quiz!`,
+              error: "Insufficient credits",
+              required: requiredCredits,
+              current: currentCredits
+            }),
+            { status: 402, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      } catch (dbErr: any) {
+        console.error("❌ [chat.ts] クレジット検証中のデータベースエラー:", dbErr.message);
+        return new Response(
+          JSON.stringify({ reply: "Failed to verify user credit balance due to a database error." }),
+          { status: 500, headers: { "Content-Type": "application/json" } }
+        );
+      }
+    }
+
+    // 3. サービスアカウントJSONのパース
     let serviceAccount: any;
     try {
       serviceAccount = JSON.parse(serviceAccountJsonStr);
@@ -85,7 +125,7 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 2. Google OAuth2 アクセストークンの取得
+    // 4. Google OAuth2 アクセストークンの取得
     const accessToken = await getGoogleAccessToken(serviceAccount);
     if (!accessToken) {
       console.error("❌ Failed to obtain Google access token via JWT.");
@@ -95,14 +135,11 @@ export async function onRequestPost(context: any) {
       );
     }
 
-    // 3. 画像生成判定
-    const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
     console.log("🎨 [chat.ts] 画像生成判定 (shouldGenerateImage):", shouldGenerateImage);
 
-    // 4. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング + 総合FAQデータの引き渡し）
+    // 5. appType に応じたシステムプロンプトの構築（全9ペルソナの完全ルーティング + 総合FAQデータの引き渡し）
     let baseSystemPrompt = "";
     
-    // portalDataにfaqListが含まれていない場合はトップレベルのfaqListをマージ
     const enrichedPortalData = {
       ...portalData,
       faqList: portalData?.faqList || faqList
@@ -144,7 +181,6 @@ export async function onRequestPost(context: any) {
         baseSystemPrompt = await buildOralExamQuestionsPrompt(promptOptions);
         break;
       default:
-        // フォールバック（従来の学習系ヤマト）
         baseSystemPrompt = buildAiYamatoContext({
           learningPace,
           userNickname,
@@ -158,7 +194,7 @@ export async function onRequestPost(context: any) {
       baseSystemPrompt += `\n\n<CUSTOM_PERSONA_INSTRUCTION>\n${systemPrompt}\n</CUSTOM_PERSONA_INSTRUCTION>`;
     }
 
-    // 5. 時間・天気のコンテキストを生成・結合
+    // 6. 時間・天気のコンテキストを生成・結合
     const currentTimeStr = getCurrentTimeString('Australia/Melbourne');
     let weatherInfoStr = "";
     try {
@@ -178,7 +214,6 @@ CRITICAL FACTUAL DATA: You MUST use the exact real-time data provided below when
 
     baseSystemPrompt += timeAndWeatherContext;
 
-    // 言語・ビジュアルルールの適用（原稿用紙VCE等の専門ツールでは日本語指導を許可）
     const isVceTool = appType.startsWith("eoy-") || appType === "genkoyoshi-editor-vce" || appType === "oral-exam-questions";
     const languageRule = isVceTool 
       ? `- LANGUAGE RULE: Support VCE Japanese students with encouraging feedback. You may provide specific Japanese vocabulary, kanji corrections, and grammar suggestions clearly while maintaining a supportive English/Japanese explanation blend as appropriate for VCE tutoring.`
@@ -203,7 +238,7 @@ ${languageRule}
       parts: [{ text: message }]
     });
 
-    // 6. Vertex AI テキスト生成エンドポイント呼び出し (Gemini 2.5 Flash)
+    // 7. Vertex AI テキスト生成エンドポイント呼び出し (Gemini 2.5 Flash)
     const modelId = "gemini-2.5-flash";
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/${modelId}:generateContent`;
 
@@ -232,7 +267,7 @@ ${languageRule}
     const vertexData = await vertexResponse.json() as any;
     const aiReply = vertexData?.candidates?.[0]?.content?.parts?.[0]?.text || "I'm sorry, I couldn't generate a response.";
 
-    // 7. 画像生成の実行
+    // 8. 画像生成の実行
     let imageUrl: string | undefined = undefined;
     let promptToUse = visualPrompt;
 
@@ -259,6 +294,14 @@ ${languageRule}
       }
     } else {
       console.log("ℹ️ [chat.ts] promptToUse が空のため、画像生成はスキップされました。");
+    }
+
+    // 💡 9. AI処理が完全に成功した後にクレジットを安全に減算し、監査ログを記録
+    if (userId && supabaseAdmin) {
+      const deductResult = await deductUserCredits(supabaseAdmin, userId, featureKey);
+      if (!deductResult.success) {
+        console.warn("⚠️ [chat.ts] クレジットの減算に失敗しましたが、AIの応答処理自体は完了しました:", deductResult.error);
+      }
     }
 
     return new Response(
