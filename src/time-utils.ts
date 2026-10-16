@@ -1,9 +1,7 @@
 /**
  * @file time-utils.ts
- * @description 汎用的な日時・タイムゾーン管理ユーティリティ（Remix対応・複数都市天気情報統合版）
+ * @description 汎用的な日時・タイムゾーン管理ユーティリティ（Foundation層連携・シンプル最適化版）
  */
-
-import { getCityWeatherContext } from "./weather-utils.js";
 
 /**
  * 指定したタイムゾーンの現在時刻をフォーマットして取得する
@@ -28,7 +26,7 @@ export function getFormattedTimeForZone(timeZone: string, targetDate: Date | str
 }
 
 /**
- * chat.tsなどの要求に合わせて現在時刻文字列を取得するヘルパー関数
+ * チャットシステムなどの要求に合わせて現在時刻文字列を取得するヘルパー関数
  */
 export function getCurrentTimeString(cityKeyOrZone: string = 'Australia/Melbourne', overrideDateStr?: string): string {
   const zone = cityKeyOrZone.includes('/') ? cityKeyOrZone : 'Australia/Melbourne';
@@ -42,35 +40,4 @@ export function getMelbourneTimeContext(overrideDateStr?: string): string {
   const formattedString = getFormattedTimeForZone('Australia/Melbourne', overrideDateStr);
 
   return `【現在の時間コンテキスト】\n現在時刻（オーストラリア・メルボルン）: ${formattedString}\nこの時間・曜日・季節の文脈を意識して、生徒への声かけや指導を行ってください。`;
-}
-
-/**
- * AIに渡すシステムプロンプトに時間コンテキストを埋め込む（従来版）
- */
-export function buildSystemInstructionWithTime(
-  baseSystemPrompt: string,
-  debugOverrideTime?: string
-): string {
-  const timeContext = getMelbourneTimeContext(debugOverrideTime);
-  return `${baseSystemPrompt}\n\n--- \n${timeContext}`;
-}
-
-/**
- * AIに渡すシステムプロンプトに、時間と天気（指定都市基準）のコンテキストを非同期で埋め込む
- */
-export async function buildSystemInstructionWithTimeAndWeather(
-  baseSystemPrompt: string,
-  debugOverrideTime?: string,
-  cityKeyOrName: string = 'melbourne'
-): Promise<string> {
-  const timeContext = getMelbourneTimeContext(debugOverrideTime);
-  const weatherContext = await getCityWeatherContext(cityKeyOrName);
-
-  let environmentalContext = `--- \n${timeContext}`;
-
-  if (weatherContext) {
-    environmentalContext += `\n${weatherContext}\n現在の天気・気温のニュアンスも自然な会話の中に軽く織り交ぜて、親しみのある温かい声かけを行ってください。`;
-  }
-
-  return `${baseSystemPrompt}\n\n${environmentalContext}`;
 }

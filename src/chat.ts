@@ -1,6 +1,6 @@
 /**
  * @file chat.ts
- * @description Cloudflare Pages Functions用チャットエンドポイント（全9ペルソナ・動的FAQデータベース・サーバーサイドクレジットガード完全連動版）
+ * @description Cloudflare Pages Functions用チャットエンドポイント（未ログイン完全ガード・サーバーサイドクレジットガード完全連動版）
  */
 
 import { buildAiYamatoContext } from './context.js';
@@ -36,7 +36,7 @@ export async function onRequestPost(context: any) {
       systemPrompt?: string;
       portalData?: any; // フロントエンドから送られてくるポータルデータ
       faqList?: Array<any>; // トップレベルで渡される場合にも対応
-      userId?: string; // ★ 追加：クレジット検証用ユーザーID
+      userId?: string; // クレジット検証用ユーザーID
     };
 
     const { 
@@ -65,6 +65,18 @@ export async function onRequestPost(context: any) {
       hasFaqList: Boolean(portalData?.faqList || faqList)
     });
 
+    // 💡 0. 未ログインユーザー（userId がない場合）の完全ブロックガード
+    if (!userId) {
+      console.warn("⚠️ [chat.ts] 未認証ユーザーからのチャットリクエストが拒否されました。");
+      return new Response(
+        JSON.stringify({ 
+          reply: "Authentication required. Please sign in or sign up to chat with Yamato-sensei.",
+          error: "Unauthorized" 
+        }),
+        { status: 401, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     // Cloudflareの環境変数から設定値を取得
     const projectId = env?.VERTEX_AI_PROJECT_ID;
     const region = env?.VERTEX_AI_REGION || "us-central1";
@@ -87,30 +99,28 @@ export async function onRequestPost(context: any) {
     let supabaseAdmin: any = null;
 
     // 💡 2. サーバーサイドでのクレジット残高検証（バックエンドガード）
-    if (userId) {
-      try {
-        supabaseAdmin = getSupabaseAdmin(env);
-        const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, userId, featureKey);
+    try {
+      supabaseAdmin = getSupabaseAdmin(env);
+      const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, userId, featureKey);
 
-        if (!hasEnough) {
-          console.warn(`⚠️ [chat.ts] クレジット不足: ユーザー ${userId}, 現在残高: ${currentCredits}, 必要残高: ${requiredCredits} (${featureKey})`);
-          return new Response(
-            JSON.stringify({
-              reply: `Your current credit balance (${currentCredits} credits) is below the required amount (${requiredCredits} credits) for this feature. Please top up or complete today's quiz!`,
-              error: "Insufficient credits",
-              required: requiredCredits,
-              current: currentCredits
-            }),
-            { status: 402, headers: { "Content-Type": "application/json" } }
-          );
-        }
-      } catch (dbErr: any) {
-        console.error("❌ [chat.ts] クレジット検証中のデータベースエラー:", dbErr.message);
+      if (!hasEnough) {
+        console.warn(`⚠️ [chat.ts] クレジット不足: ユーザー ${userId}, 現在残高: ${currentCredits}, 必要残高: ${requiredCredits} (${featureKey})`);
         return new Response(
-          JSON.stringify({ reply: "Failed to verify user credit balance due to a database error." }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
+          JSON.stringify({
+            reply: `Your current credit balance (${currentCredits} credits) is below the required amount (${requiredCredits} credits) for this feature. Please top up or complete today's quiz!`,
+            error: "Insufficient credits",
+            required: requiredCredits,
+            current: currentCredits
+          }),
+          { status: 402, headers: { "Content-Type": "application/json" } }
         );
       }
+    } catch (dbErr: any) {
+      console.error("❌ [chat.ts] クレジット検証中のデータベースエラー:", dbErr.message);
+      return new Response(
+        JSON.stringify({ reply: "Failed to verify user credit balance due to a database error." }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
     }
 
     // 3. サービスアカウントJSONのパース
@@ -297,7 +307,7 @@ ${languageRule}
     }
 
     // 💡 9. AI処理が完全に成功した後にクレジットを安全に減算し、監査ログを記録
-    if (userId && supabaseAdmin) {
+    if (supabaseAdmin) {
       const deductResult = await deductUserCredits(supabaseAdmin, userId, featureKey);
       if (!deductResult.success) {
         console.warn("⚠️ [chat.ts] クレジットの減算に失敗しましたが、AIの応答処理自体は完了しました:", deductResult.error);
@@ -379,7 +389,7 @@ async function getGoogleAccessToken(serviceAccount: any): Promise<string | null>
     const tokenRes = await fetch(serviceAccount.token_uri, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}&assertion=${encodeURIComponent(jwt)}`
+      body: `grant_type=${encodeURIComponent("urn:ietf:params:oauth:grant-type:jwt-bearer")}` + `&assertion=${encodeURIComponent(jwt)}`
     });
 
     if (!tokenRes.ok) {

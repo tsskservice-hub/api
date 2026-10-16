@@ -41,7 +41,8 @@ export interface VceGenkoyoshiPromptOptions extends ApiPageLayoutOptions {
  * VCE原稿用紙エディターヤマト固有のアイデンティティと、動的VCEデータを組み込む関数
  */
 export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptions = {}): Promise<string> {
-  const { portalData = {}, ...baseOptions } = options;
+  // ★ 型エラーが起きないよう、portalData に VceGenkoyoshiPortalData 型を明示的にキャスト
+  const { portalData = {} as VceGenkoyoshiPortalData, ...baseOptions } = options;
 
   // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
   let textTypesText = "";
