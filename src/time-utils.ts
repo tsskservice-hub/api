@@ -1,6 +1,6 @@
 /**
  * @file time-utils.ts
- * @description 汎用的な日時・タイムゾーン管理ユーティリティ（Foundation層連携・シンプル最適化版）
+ * @description 汎用的な日時・タイムゾーン管理ユーティリティ（FoundationLayout層連携・シンプル最適化版）
  */
 
 /**

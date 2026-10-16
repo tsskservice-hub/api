@@ -1,8 +1,8 @@
 /**
  * @file genkoyoshi-editor-vce.ts
- * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（ApiPageLayout・各種VCE基準データ完全連動版）
+ * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（YamatoApiCommon・各種VCE基準データ完全連動版）
  */
-import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
 /**
  * ★ フロントエンド（yamato-portal）から動的に渡されるVCE原稿用紙データのデフォルト雛形（単一のソース・オブ・トゥルース）
@@ -31,9 +31,9 @@ export const defaultVcePortalData = {
 export type VceGenkoyoshiPortalData = typeof defaultVcePortalData;
 
 /**
- * VCE原稿用紙プロンプト生成用のオプション（ApiPageLayoutオプション + VCEポータルデータ）
+ * VCE原稿用紙プロンプト生成用のオプション（YamatoApiCommonオプション + VCEポータルデータ）
  */
-export interface VceGenkoyoshiPromptOptions extends ApiPageLayoutOptions {
+export interface VceGenkoyoshiPromptOptions extends YamatoApiCommonOptions {
   portalData?: VceGenkoyoshiPortalData;
 }
 
@@ -182,8 +182,8 @@ ${eoyCriteriaText}
 </system_context>
 `.trim();
 
-  // ApiPageLayout を通して、時間・天気・FAQ・共通ルールを自動統合して返却
-  return await ApiPageLayout(VCE_GENKOYOSHI_SPECIFIC_CONTEXT, {
+  // YamatoApiCommon を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  return await YamatoApiCommon(VCE_GENKOYOSHI_SPECIFIC_CONTEXT, {
     portalData,
     faqList: portalData.faqList,
     timeZone: portalData.timeZone,

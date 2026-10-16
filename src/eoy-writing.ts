@@ -1,27 +1,81 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ApiPageLayout・各種VCE基準データ・2025レポート・試験仕様完全連動版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（YamatoApiCommon・各種VCE基準データ・2025レポート・試験仕様完全連動版・ペイス対応）
  */
-import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+
+/**
+ * ★ ライティング特化のペース別インストラクション生成
+ */
+function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
+  if (!pace) return "";
+
+  const lowerPace = pace.toLowerCase();
+
+  if (lowerPace.includes("accelerated")) {
+    return `
+<pace_module_accelerated>
+- Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
+- Volume & Style: High-density 4-layer analysis report. (All explanations and feedback must be written in English).
+- Required Output Structure:
+  🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
+  📊 [Character Count Check] (Check characters: ${exactCharacterCount} / 500, assess density)
+  🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English.)
+  🧩 2. Discourse & Cohesion Analysis (Analyse paragraphing, logical flow, and transition words in English.)
+  ✍ 3. Academic/Formal Register Refinement (Elevate casual style to formal academic prose.)
+  👑 4. VCE Examiner Perspective (Advise on grammar variety strategy, micro traps in English.)
+  💡 5. Teacher's One-Sentence Challenge (Elite 1-sentence example with breakdown.)
+  🚀 6. Next Action: Advanced Self-Reconstruction Challenge
+</pace_module_accelerated>`.trim();
+  }
+
+  if (lowerPace.includes("normal")) {
+    return `
+<pace_module_normal>
+- Profile & Tone: Mid-level student. Balanced, standard tutor.
+- Volume & Style: Balanced corrections in standard English.
+- Required Output Structure:
+  🟢 [VCE-Aligned Estimation Band]
+  📊 [Character Count Check]
+  🔍 [Key Corrections & Areas for Improvement]
+  📖 [Grammar Refinement]
+  💡 [Teacher's One-Point Hint]
+  🚀 [Next Action: Challenge Yourself!]
+</pace_module_normal>`.trim();
+  }
+
+  return `
+<pace_module_steady>
+- Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉).
+- Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
+- Required Output Structure:
+  🟡 [VCE-Aligned Estimation Band]
+  📝 [Character Count Check] (Characters: ${exactCharacterCount} / 500)
+  🌟 [One-Point Correction]
+  💖 [Teacher's Simple Hint]
+  💪 [Next Step]
+</pace_module_steady>`.trim();
+}
 
 /**
  * ★ フロントエンド（yamato-portal）から動的に渡されるEOY Writing Practiceデータのデフォルト雛形
  */
 export const defaultEoyWritingPortalData = {
   studentName: "",
-  selectedTextType: "",       // 選択されたテキストタイプ（Article, Speech, Letter 等）
-  studentEssay: "",           // 現在編集中の文章
+  selectedTextType: "",        // 選択されたテキストタイプ（Article, Speech, Letter 等）
+  studentEssay: "",            // 現在編集中の文章
   kanjiList: [] as Array<any>,         // kanji-list.json のデータを受け取る
   textTypes: {} as any,                // texttypes.json のデータを受け取る
   grammarList: {} as any,              // vce-grammar-list.ts のデータを受け取る
   vocabList: [] as Array<any>,         // vce-vocabulary-list.json のデータを受け取る
   writingStyles: {} as any,            // writing-styles.ts のデータを受け取る
-  eoyWrittenCriteria: {} as any,      // vce-eoy-written-criteria.ts のデータを受け取る
-  eoyWrittenReport2025: {} as any,    // vce-eoy-written-report2025.ts のデータを受け取る
-  eoyWrittenSpec: {} as any,          // vce-eoy-written-spec.ts のデータを受け取る
+  eoyWrittenCriteria: {} as any,       // vce-eoy-written-criteria.ts のデータを受け取る
+  eoyWrittenReport2025: {} as any,     // vce-eoy-written-report2025.ts のデータを受け取る
+  eoyWrittenSpec: {} as any,           // vce-eoy-written-spec.ts のデータを受け取る
   faqList: [] as Array<any>,           // 総合FAQデータバンクを受け取る
   timeZone: "",
   cityName: "",
+  pace: "",                            // 指導ペース（accelerated, normal, steady）
 };
 
 /**
@@ -32,8 +86,10 @@ export type EoyWritingPortalData = typeof defaultEoyWritingPortalData;
 /**
  * EOY Writing Practice プロンプト生成用のオプション
  */
-export interface EoyWritingPromptOptions extends ApiPageLayoutOptions {
+export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
   portalData?: EoyWritingPortalData;
+  pace?: string;                       // オプション単体でも指定可能にする
+  exactCharacterCount?: number;        // エッセイの正確な文字数
 }
 
 /**
@@ -41,6 +97,14 @@ export interface EoyWritingPromptOptions extends ApiPageLayoutOptions {
  */
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
   const { portalData = {} as EoyWritingPortalData, ...baseOptions } = options;
+
+  // ペースと文字数の取得（portalData内またはoptionsトップレベルから柔軟に取得）
+  const pace = options.pace || portalData.pace || "";
+  const essayText = portalData.studentEssay || "";
+  const exactCharacterCount = options.exactCharacterCount ?? essayText.length;
+
+  // ペース別インストラクションの生成
+  const paceInstructionText = getPaceInstruction(pace, exactCharacterCount);
 
   // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
   let textTypesText = "";
@@ -118,12 +182,12 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
 
   // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
   let activeSessionContext = "";
-  if (portalData.selectedTextType || portalData.studentEssay) {
+  if (portalData.selectedTextType || essayText) {
     activeSessionContext = `
   <current_student_work>
     - Selected Text Type (Format): ${portalData.selectedTextType || "Not specified yet"}
     - Current Student Essay / Text:
-      "${portalData.studentEssay || "No essay provided yet."}"
+      "${essayText || "No essay provided yet."}"
   </current_student_work>
 `;
   }
@@ -140,7 +204,10 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     - Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Act as an experienced VCE teacher committed to helping students achieve high study scores.
   </persona_tone>
 
+${paceInstructionText}
+
 ${activeSessionContext}
+
   <vce_curriculum_knowledge_base>
     - STRICT DISTINCTION RULE (CRITICAL):
       * **Text Types** refer strictly to the physical format, layout, and conventions of the writing (e.g., Article, Speech script, Personal Letter, Email, Journal/Diary, Report, Story, Message, Review).
@@ -179,8 +246,8 @@ ${eoyReport2025Text}
 </system_context>
   `.trim();
 
-  // ApiPageLayout を通して、時間・天気・FAQ・共通ルールを自動統合して返却
-  return await ApiPageLayout(EOY_WRITING_SPECIFIC_CONTEXT, {
+  // YamatoApiCommon を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  return await YamatoApiCommon(EOY_WRITING_SPECIFIC_CONTEXT, {
     portalData,
     faqList: portalData.faqList,
     timeZone: portalData.timeZone,

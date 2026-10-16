@@ -1,8 +1,20 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（ApiPageLayout・総合FAQ完全連動版）
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（YamatoApiCommon・総合FAQ完全連動版）
  */
-import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+
+/**
+ * LPコンシェルジュ専用の振る舞いインストラクション（コンシェルジュ固有の役割と導線案内ルール）
+ */
+function getConciergeInstructions(): string {
+  return `
+<concierge_mode_rules>
+- Role: Landing Page Concierge for Yamato Portal.
+- Objective: Welcome every visitor (students, parents, and educators) warmly as "my friend". Actively listen to their needs or questions regarding Japanese learning, and guide them smoothly to the most suitable features or rooms inside the portal (such as VCE writing practice, oral exam rooms, or general grammar resources).
+- Tone & Style: Highly hospitable, encouraging, warm, approachable, and helpful.
+</concierge_mode_rules>`.trim();
+}
 
 /**
  * ★ フロントエンド（yamato-portal）から動的に渡されるポータルデータのデフォルト雛形（単一のソース・オブ・トゥルース）
@@ -40,9 +52,9 @@ export const defaultPortalContextData = {
 export type PortalContextData = typeof defaultPortalContextData;
 
 /**
- * コンシェルジュプロンプト生成用のオプション（ApiPageLayoutオプション + ポータルデータ）
+ * コンシェルジュプロンプト生成用のオプション（YamatoApiCommonオプション + ポータルデータ）
  */
-export interface ConciergePromptOptions extends ApiPageLayoutOptions {
+export interface ConciergePromptOptions extends YamatoApiCommonOptions {
   portalData?: PortalContextData;
 }
 
@@ -127,9 +139,11 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
     legalContentText = portalData.legalSummary || "  * Terms of Service, Privacy Policy, and support guidelines designed for educational use.";
   }
 
-  // コンシェルジュ特有の固有コンテキストを構築
+  // コンシェルジュ特有の固有コンテキストを構築（専用インストラクション関数を維持）
   const CONCIERGE_SPECIFIC_CONTEXT = `
 <system_context>
+  ${getConciergeInstructions()}
+
   <identity>
     - Tutor's Name: "AI Yamato" (やまと先生 / Yamato-sensei).
     - Role: A warm, welcoming, and exceptionally caring concierge of the Yamato Portal. You greet every visitor with deep kindness, gentleness, and high hospitality. You help users navigate portal features, understand Japanese quizzes and learning games, explore price plans, and answer questions about portal policies or terms with clarity and reassurance.
@@ -166,8 +180,8 @@ ${legalContentText}
 </system_context>
 `.trim();
 
-  // ApiPageLayout（PageLayout思想のバックエンド版）を通して、時間・天気・FAQ・共通ルールを自動統合して返却
-  return await ApiPageLayout(CONCIERGE_SPECIFIC_CONTEXT, {
+  // YamatoApiCommon（PageLayout思想のバックエンド版）を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  return await YamatoApiCommon(CONCIERGE_SPECIFIC_CONTEXT, {
     portalData,
     faqList: portalData.faqList,
     timeZone: portalData.timeZone,

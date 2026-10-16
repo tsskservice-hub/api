@@ -1,9 +1,13 @@
 /**
- * @file base-rules.ts
- * @description 全てのヤマト（AI Yamato）のプロンプトで共有される普遍的なベースルール・ペルソナ定義・置換ユーティリティ（動的FAQ連携版）
+ * @file FoundationLayout.ts
+ * @description バックエンド専用の共通レイアウト・コンテキスト管理層（旧base-rules.ts）
+ * 時間・天気の取得、動的FAQのコンパイル、すべてのヤマトで共有される普遍的なベースルールを提供します。
  */
 
-export interface SystemPromptOptions {
+import { getFormattedTimeForZone } from "./time-utils";
+import { getCityWeatherContext } from "./weather-utils";
+
+export interface FoundationLayoutOptions {
   studentEmail?: string;
   userId?: string;
   userNickname?: string;
@@ -15,13 +19,15 @@ export interface SystemPromptOptions {
   isFinalTurn?: boolean | string;
   attachedFiles?: string;
   requestVisualAid?: boolean | string;
-  faqList?: Array<any>; // ★ yamato-portalから動的に渡されるFAQデータを受け取る窓口
+  faqList?: Array<any>;      // フロントエンドから動的に渡されるFAQデータ
+  timeZone?: string;
+  cityName?: string;
 }
 
 /**
- * すべてのヤマトに共通するメタデータ、命名規則、時間・視覚補助・安全性のベーステンプレート
+ * すべてのヤマトに共通するメタデータ、命名規則、時間・天気・FAQ・安全性のベーステンプレート
  */
-export const AIYAMATO_BASE_PROMPT = `
+export const AIYAMATO_FoundationLayout_PROMPT = `
 <student_metadata>
   - Student Email: __STUDENT_EMAIL__
   - User ID: __USER_ID__
@@ -50,13 +56,18 @@ export const AIYAMATO_BASE_PROMPT = `
   </communication_rules>
 </system_context>
 
+<current_environmental_context>
+  - Current Time & Date: __TIME_CONTEXT__
+  - Current Weather: __WEATHER_CONTEXT__
+</current_environmental_context>
+
 <comprehensive_faq_knowledge_bank>
   - Purpose: When students ask common questions regarding VCE exams, oral/written tests, genkoyoshi formatting, portal usage, or general Japanese learning, you MUST refer to the following expert guidance and FAQ database to provide consistent, accurate, and professional mentoring:
 __FAQ_KNOWLEDGE_BANK__
 </comprehensive_faq_knowledge_bank>
 
 <time_and_weather_handling>
-  - Time & Weather Inquiry Rule: No matter what chat or mode you are in, if the visitor asks about the current time or weather, refer to your time and weather context (provided via time-utils and weather-utils), answer pleasantly and concisely in English in character, and then gently steer the conversation back to your Japanese learning and portal activities.
+  - Time & Weather Inquiry Rule: No matter what chat or mode you are in, if the visitor asks about the current time or weather, refer to your time and weather context above, answer pleasantly and concisely in English in character, and then gently steer the conversation back to your Japanese learning and portal activities.
 </time_and_weather_handling>
 
 <visual_generation_rules>
@@ -76,12 +87,12 @@ __FAQ_KNOWLEDGE_BANK__
 `.trim();
 
 /**
- * ベースプロンプトのプレースホルダーをオプション値で置換するヘルパー関数
+ * 共通基盤として時間・天気・FAQを自動取得・コンパイルし、各ヤマト固有のコンテキストと合体させる関数
  */
-export function buildBaseSystemPrompt(
+export async function buildFoundationLayoutPrompt(
   specificContext: string,
-  options: SystemPromptOptions = {}
-): string {
+  options: FoundationLayoutOptions = {}
+): Promise<string> {
   const {
     studentEmail = "",
     userId = "",
@@ -95,22 +106,23 @@ export function buildBaseSystemPrompt(
     attachedFiles = "なし",
     requestVisualAid = false,
     faqList = [],
+    timeZone = "Australia/Melbourne",
+    cityName = "Melbourne",
   } = options;
 
-  const isFinalStr =
-    typeof isFinalTurn === "boolean"
-      ? isFinalTurn
-        ? "true"
-        : "false"
-      : String(isFinalTurn);
-  const requestVisualAidStr =
-    typeof requestVisualAid === "boolean"
-      ? requestVisualAid
-        ? "true"
-        : "false"
-      : String(requestVisualAid);
+  // 1. タイムゾーンと時間の取得（共通処理）
+  const timeContext = getFormattedTimeForZone(timeZone);
 
-  // yamato-portalから動的に渡されたFAQデータをテキスト形式にコンパイルしてプロンプトに組み込む
+  // 2. 天気情報の取得（共通処理・エラーハンドリング内包）
+  let weatherContext = "Fine, 20°C";
+  try {
+    const weather = await getCityWeatherContext(cityName);
+    weatherContext = weather ? String(weather) : "Fine, 20°C";
+  } catch (e: any) {
+    console.warn("⚠️ [FoundationLayout.ts] 天気情報の取得に失敗しました:", e.message);
+  }
+
+  // 3. FAQデータベースをテキスト形式にコンパイル
   let faqKnowledgeBankText = "";
   if (faqList && Array.isArray(faqList) && faqList.length > 0) {
     faqKnowledgeBankText = faqList
@@ -123,13 +135,17 @@ export function buildBaseSystemPrompt(
     faqKnowledgeBankText = "  * No specific FAQ database items passed for this session.";
   }
 
-  // 個別のロール・アイデンティティ定義と共通ルールを結合してプレースホルダーを置換
+  const isFinalStr = typeof isFinalTurn === "boolean" ? (isFinalTurn ? "true" : "false") : String(isFinalTurn);
+  const requestVisualAidStr = typeof requestVisualAid === "boolean" ? (requestVisualAid ? "true" : "false") : String(requestVisualAid);
+
+  // 4. 個別の固有コンテキストと、共通ファンデーションプロンプトを結合
   const combinedPrompt = `
 ${specificContext}
 
-${AIYAMATO_BASE_PROMPT}
+${AIYAMATO_FoundationLayout_PROMPT}
 `.trim();
 
+  // 5. すべてのプレースホルダーを置換して返却
   return combinedPrompt
     .replace("__STUDENT_EMAIL__", studentEmail)
     .replace("__USER_ID__", userId)
@@ -142,7 +158,9 @@ ${AIYAMATO_BASE_PROMPT}
     .replace("__IS_FINAL_TURN__", isFinalStr)
     .replace("__ATTACHED_FILES__", attachedFiles)
     .replace("__REQUEST_VISUAL_AID__", requestVisualAidStr)
+    .replace("__TIME_CONTEXT__", timeContext)
+    .replace("__WEATHER_CONTEXT__", weatherContext)
     .replace("__FAQ_KNOWLEDGE_BANK__", faqKnowledgeBankText);
 }
 
-export default AIYAMATO_BASE_PROMPT;
+export default AIYAMATO_FoundationLayout_PROMPT;

@@ -1,6 +1,6 @@
 /**
  * @file weather-utils.ts
- * @description Open-Meteo API（ジオコーディング付き）を使用して、世界中のあらゆる都市の天気予報を取得するユーティリティ（Foundation層対応版）
+ * @description Open-Meteo API（ジオコーディング付き）を使用して、世界中のあらゆる都市の天気予報を取得するユーティリティ（FoundationLayout層対応版）
  */
 
 export interface CityInfo {

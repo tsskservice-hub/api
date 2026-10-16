@@ -1,13 +1,13 @@
 /**
  * @file genkoyoshi-editor-general.ts
- * @description 一般向け原稿用紙エディターヤマト専用プロンプト生成関数（ApiPageLayout完全連動版）
+ * @description 一般向け原稿用紙エディターヤマト専用プロンプト生成関数（YamatoApiCommon完全連動版）
  */
-import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
 /**
  * 一般向け原稿用紙エディター固有のオプション定義
  */
-export interface GenkoyoshiGeneralPromptOptions extends ApiPageLayoutOptions {
+export interface GenkoyoshiGeneralPromptOptions extends YamatoApiCommonOptions {
   // 独自のオプションがあればここに定義
 }
 
@@ -30,8 +30,8 @@ export async function buildGenkoyoshiGeneralPrompt(options: GenkoyoshiGeneralPro
 </system_context>
   `.trim();
 
-  // ApiPageLayout に流し込む
-  return await ApiPageLayout(GENERAL_GENKOYOSHI_SPECIFIC_CONTEXT, {
+  // YamatoApiCommon に流し込む
+  return await YamatoApiCommon(GENERAL_GENKOYOSHI_SPECIFIC_CONTEXT, {
     portalData,
     faqList: portalData?.faqList,
     timeZone: portalData?.timeZone,

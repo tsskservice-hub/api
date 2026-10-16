@@ -1,13 +1,13 @@
 /**
  * @file game-igo.ts
- * @description 囲碁ヤマト専用プロンプト生成関数（ApiPageLayout完全連動版）
+ * @description 囲碁ヤマト専用プロンプト生成関数（YamatoApiCommon完全連動版）
  */
-import { ApiPageLayout, ApiPageLayoutOptions } from "./ApiPageLayout";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
 /**
  * 囲碁ヤマト固有のオプション定義
  */
-export interface GameIgoOptions extends ApiPageLayoutOptions {
+export interface GameIgoOptions extends YamatoApiCommonOptions {
   // 囲碁ヤマト独自のオプションがあればここに定義
 }
 
@@ -30,8 +30,8 @@ export async function buildGameIgoPrompt(options: GameIgoOptions = {}): Promise<
 </system_context>
   `.trim();
 
-  // ApiPageLayout に流し込む
-  return await ApiPageLayout(IGO_SPECIFIC_CONTEXT, {
+  // YamatoApiCommon に流し込む
+  return await YamatoApiCommon(IGO_SPECIFIC_CONTEXT, {
     portalData,
     faqList: portalData?.faqList,
     timeZone: portalData?.timeZone,
