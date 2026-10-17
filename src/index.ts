@@ -156,10 +156,10 @@ app.get('/api/schema/:appType', (c) => {
   return c.json({ appType, fields });
 });
 
-// 💡 バックエンドのエコシステムメタデータをフロントエンド（test-yamato.tsx）へ配信するエンドポイント
+// 💡 FoundationLayout.ts の FOUNDATION_LAYOUT_META を丸ごと配信するように修正
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
-    foundation: FOUNDATION_LAYOUT_META,
+    foundation: FOUNDATION_LAYOUT_META, // ← FoundationLayout.ts で定義した全プロパティ（currentSettings等を含む）がそのまま入ります
     apiCommon: {
       fileName: "YamatoApiCommon.tsx",
       layer: "窓口・外装",
