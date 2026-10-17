@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・メタデータ配信・クレジット減算完全統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・画像生成・メタデータ配信・クレジット減算完全統合版）
  */
 
 import { Hono } from 'hono';
@@ -14,6 +14,9 @@ import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
+
+// 💡 画像生成サービスのインポート
+import { generateVisualAid } from './imagen-service';
 
 // 💡 FoundationLayout から最新のメタデータをインポート
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
@@ -185,24 +188,28 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（クレジット検証・減算統合版）
+// チャット送信用エンドポイント: POST /chat（画像生成・クレジット減算完全統合版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
       message: string; 
       chatHistory?: { role: string; content: string }[];
-      history?: { role: string; content: string }[]; // 互換性のため両方対応
+      history?: { role: string; content: string }[];
       assignedQuestion?: string;
       learningPace?: string;
       userNickname?: string;
       appType?: string;
       portalData?: any;
       faqList?: Array<any>;
-      userId?: string; // 💡 ユーザーID
+      userId?: string;
+      visualPrompt?: string;
+      requestVisualAid?: boolean;
     }>();
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
+    const requestVisualAid = body.requestVisualAid || false;
+    const visualPrompt = body.visualPrompt;
 
     if (!userMessage) {
       return c.json({ error: 'Message is required' }, 400);
@@ -223,10 +230,13 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 1. サーバーサイドでのクレジット残高検証
-    const featureKey: FeatureKey = 'textAi';
+    // 💡 1. 画像生成が含まれるリクエストかどうかを判定し、featureKey を決定
+    const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
+    const featureKey: FeatureKey = shouldGenerateImage ? 'imageAi' : 'textAi';
+
     let supabaseAdmin: any = null;
 
+    // 💡 2. サーバーサイドでのクレジット残高検証
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
       const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, body.userId, featureKey);
@@ -244,10 +254,19 @@ app.post('/chat', async (c) => {
       return c.json({ error: "Database error during credit check", reply: "Failed to verify credit balance." }, 500);
     }
 
-    // 2. サービスアカウントからアクセストークンを取得
+    // 💡 3. クレジットの事前減算処理
+    if (supabaseAdmin && body.userId) {
+      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
+      if (!deductResult.success) {
+        console.warn("⚠️ Credit deduction failed:", deductResult.error);
+        return c.json({ reply: "Failed to deduct credits. Please check your balance.", error: "Credit deduction failed" }, 402);
+      }
+    }
+
+    // 4. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 3. システム指示の動的構築
+    // 5. システム指示の動的構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
@@ -256,7 +275,6 @@ app.post('/chat', async (c) => {
       faqList: body.portalData?.faqList || body.faqList || []
     };
 
-    // 💡 any 型にキャストして各ペルソナ関数の異なるオプション型要件によるコンパイルエラーを回避
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
       portalData: enrichedPortalData,
@@ -303,7 +321,7 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 4. Vertex AI 用の会話履歴データを構築
+    // 6. Vertex AI 用の会話履歴データを構築
     const contents = [
       ...history.map((h) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
@@ -315,7 +333,7 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 5. Vertex AI のエンドポイントへリクエスト送信
+    // 7. Vertex AI のエンドポイントへリクエスト送信
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {
@@ -338,19 +356,35 @@ app.post('/chat', async (c) => {
     }
 
     const data = (await vertexRes.json()) as any;
-    const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+    const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 6. AI処理成功後にクレジットを安全に減算
-    if (supabaseAdmin && body.userId) {
-      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
-      if (!deductResult.success) {
-        console.warn("⚠️ Credit deduction failed after successful AI response:", deductResult.error);
-      } else {
-        console.log(`✨ Credit deducted successfully. New balance: ${deductResult.newBalance}`);
+    // 💡 8. 画像生成の実行（必要な場合）
+    let imageUrl: string | undefined = undefined;
+    let promptToUse = visualPrompt;
+
+    if (!promptToUse && shouldGenerateImage) {
+      promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
+    }
+
+    if (promptToUse) {
+      try {
+        const base64Image = await generateVisualAid({
+          promptText: promptToUse,
+          projectId: projectId,
+          location: region
+        });
+        if (base64Image) {
+          imageUrl = `data:image/png;base64,${base64Image}`;
+        }
+      } catch (err: any) {
+        console.error("❌ Image generation error in /chat:", err.message);
       }
     }
 
-    return c.json({ reply });
+    return c.json({ 
+      reply: aiReply,
+      imageUrl: imageUrl 
+    });
 
   } catch (e: any) {
     console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
