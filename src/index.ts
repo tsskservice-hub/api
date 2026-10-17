@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・クレジット減算完全統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・動的スキーマ配信・メタデータ配信・クレジット減算完全統合版）
  */
 
 import { Hono } from 'hono';
@@ -14,6 +14,9 @@ import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
+
+// 💡 FoundationLayout から最新のメタデータをインポート
+import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 
 // 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理のインポート
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
@@ -150,6 +153,38 @@ app.get('/api/schema/:appType', (c) => {
   return c.json({ appType, fields });
 });
 
+// 💡 バックエンドのエコシステムメタデータをフロントエンド（test-yamato.tsx）へ配信するエンドポイント
+app.get('/api/ecosystem-metadata', (c) => {
+  const metadata = {
+    foundation: FOUNDATION_LAYOUT_META,
+    apiCommon: {
+      fileName: "YamatoApiCommon.tsx",
+      layer: "窓口・外装",
+      role: "共通プロンプト構造や portalData などの共通オプションを受け渡す基盤",
+    },
+    template: {
+      fileName: "a-template.ts",
+      layer: "乗組員 (ひな形)",
+      role: "FoundationLayout のデータが内包されている YamatoApiCommon.tsx をインポートしてペルソナを記述するひな形",
+    },
+    portalLayout: {
+      fileName: "PageLayout.tsx",
+      layer: "土台 (機体)",
+      role: "ポータル全体の共通レイアウト、ヘッダー/フッター、パスキー認証基盤",
+    },
+    chatCommon: {
+      fileName: "YamatoChatCommon.tsx",
+      layer: "窓口・外装",
+      role: "対話UIの汎用テンプレート・操縦士コックピット",
+    }
+  };
+
+  return c.json({
+    success: true,
+    metadata,
+  });
+});
+
 // チャット送信用エンドポイント: POST /chat（クレジット検証・減算統合版）
 app.post('/chat', async (c) => {
   try {
@@ -221,7 +256,8 @@ app.post('/chat', async (c) => {
       faqList: body.portalData?.faqList || body.faqList || []
     };
 
-    const promptOptions = {
+    // 💡 any 型にキャストして各ペルソナ関数の異なるオプション型要件によるコンパイルエラーを回避
+    const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
       portalData: enrichedPortalData,
       faqList: enrichedPortalData.faqList,

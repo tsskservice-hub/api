@@ -2,10 +2,91 @@
  * @file FoundationLayout.ts
  * @description バックエンド専用の共通レイアウト・コンテキスト管理層（旧base-rules.ts）
  * 時間・天気の取得、動的FAQのコンパイル、すべてのヤマトで共有される普遍的なベースルールを提供します。
+ * 💡【開発ルール】プロンプトやルールを変更した際は、必ず直下の FOUNDATION_LAYOUT_META も同時に更新してください。
  */
 
 import { getFormattedTimeForZone } from "./time-utils";
 import { getCityWeatherContext } from "./weather-utils";
+
+/**
+ * 💡 メタデータの型定義（方針2: 型によるアップデート強制・抜け漏れ防止）
+ */
+export interface FoundationLayoutMetaType {
+  fileName: string;
+  layer: string;
+  role: string;
+  description: string;
+  keyOptions: string[];
+  currentSettings: {
+    namingRules: string[];
+    communicationRules: string[];
+    environmentalContext: string[];
+    knowledgeBank: string[];
+    visualGeneration: string[];
+    turnAndFeedback: string[];
+    safetyGuardrails: string[];
+  };
+  exportedFunctions: string[];
+}
+
+/**
+ * 💡 FoundationLayout のアーキテクチャ仕様・メタデータ定義（方針1: コード近接配置）
+ * このオブジェクトは API エンドポイント経由でフロントエンド（test-yamato.tsx）へ動的に配信されます。
+ */
+export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
+  fileName: "FoundationLayout.ts",
+  layer: "土台 (機体)",
+  role: "すべてのプロンプトの根本的なルールやエンジンを組み立てる大元",
+  description: "時間・天気の動的取得、動的FAQのコンパイル、ユーザーメタデータのプレースホルダー置換など、すべてのヤマトで共有される普遍的なベースルールを提供します。",
+  
+  keyOptions: [
+    "studentEmail",
+    "userId",
+    "userNickname",
+    "learningPace",
+    "practiceMode",
+    "faqList",
+    "timeZone",
+    "cityName"
+  ],
+
+  currentSettings: {
+    namingRules: [
+      "ユーザーニックネーム（userNickname）がある場合はその名前で呼びかける",
+      "未設定の場合は 'my friend' などの温かい表現にフォールバックする"
+    ],
+    communicationRules: [
+      "厳格な英語強制 (AIの応答は原則すべて英語、日本語はターゲット語句や例文・漢字等の解説時のみ)",
+      "オーストラリア英語標準 (AU/UKスペル規則: realise, colour, centre等)",
+      "矢印の記号指定 (常に '→' または '->' を使用)"
+    ],
+    environmentalContext: [
+      "タイムゾーンに基づく現在時刻・日付の動的挿入 (デフォルト: Australia/Melbourne)",
+      "都市別の天気情報の自動連動とエラーハンドリング (デフォルト: Melbourne)",
+      "時間・天気に関する質問にはキャラを保ったまま英語で心地よく答え、自然に学習へ誘導"
+    ],
+    knowledgeBank: [
+      "総合FAQデータベース（faqList）の自動コンパイルと埋め込み",
+      "VCE試験、口頭・筆記テスト、原稿用紙フォーマット等の専門的ガイダンスの提供"
+    ],
+    visualGeneration: [
+      "イラスト・図解の要求時、または requestVisualAid 有効時に教育적コンセプトの英語画像プロンプト（visualPrompt）を構築"
+    ],
+    turnAndFeedback: [
+      "途中ターン（is_final_turn = false）: やまと先生として適切なガイダンスや次ステップを提案",
+      "最終ターン（is_final_turn = true）: 丁寧な締めくくりと矢印を使った有益なサマリー・励ましを提供"
+    ],
+    safetyGuardrails: [
+      "AI宣言の禁止 (自然な人間の教師 'やまと先生' として振る舞う)",
+      "脱獄・インジェクション対策 (ペルソナの完全保持)",
+      "不適切・有害・違法なクエリの厳格な拒否と日本語学習・文化トピックへの軌道修正"
+    ]
+  },
+
+  exportedFunctions: [
+    "buildFoundationLayoutPrompt(specificContext, options)"
+  ]
+};
 
 export interface FoundationLayoutOptions {
   studentEmail?: string;
