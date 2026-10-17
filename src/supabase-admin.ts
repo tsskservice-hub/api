@@ -1,6 +1,6 @@
 /**
  * @file supabase-admin.ts
- * @description Cloudflare Workers / API環境用の Supabase 管理者クライアントおよびクレジット処理ヘルパー（自動プロファイル修復対応版）
+ * @description Cloudflare Workers / API環境用の Supabase 管理者クライアントおよびクレジット処理ヘルパー（ロギング堅牢化・自動プロファイル修復対応版）
  */
 
 import { createClient } from "@supabase/supabase-js";
@@ -112,18 +112,22 @@ export async function deductUserCredits(
       throw new Error(`Profile update failed: ${updateError.message}`);
     }
 
-    // クレジット利用履歴（監査ログ）を credit_transactions に記録
-    const { error: txError } = await supabaseAdmin
-      .from("credit_transactions")
-      .insert({
-        user_id: userId,
-        amount: -cost,
-        feature_used: featureKey,
-        description: `Consumed for ${featureKey} execution`,
-      });
+    // クレジット利用履歴（監査ログ）を credit_transactions に記録（テーブル未作成やエラーでも処理を止めないよう保護）
+    try {
+      const { error: txError } = await supabaseAdmin
+        .from("credit_transactions")
+        .insert({
+          user_id: userId,
+          amount: -cost,
+          feature_used: featureKey,
+          description: `Consumed for ${featureKey} execution`,
+        });
 
-    if (txError) {
-      console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
+      if (txError) {
+        console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
+      }
+    } catch (txEx: any) {
+      console.warn("⚠️ [supabase-admin.ts] credit_transactions への挿入スキップ:", txEx?.message);
     }
 
     console.log(`✨ [supabase-admin.ts] クレジット減算成功: ユーザー ${userId}, 消費: -${cost}, 残高: ${newBalance}`);

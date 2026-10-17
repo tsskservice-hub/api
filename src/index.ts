@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・画像生成・メタデータ配信・クレジット減算完全統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐対応版）
  */
 
 import { Hono } from 'hono';
@@ -21,9 +21,9 @@ import { generateVisualAid } from './imagen-service';
 // 💡 FoundationLayout から最新のメタデータをインポート
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 
-// 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理のインポート
+// 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理・ルール関数のインポート
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
-import { FeatureKey } from './credit-rules';
+import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
 
 // 環境変数の型定義（柔軟なキー名に対応）
 type Bindings = {
@@ -156,10 +156,10 @@ app.get('/api/schema/:appType', (c) => {
   return c.json({ appType, fields });
 });
 
-// 💡 FoundationLayout.ts の FOUNDATION_LAYOUT_META を丸ごと配信するように修正
+// 💡 FoundationLayout.ts の FOUNDATION_LAYOUT_META を丸ごと配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
-    foundation: FOUNDATION_LAYOUT_META, // ← FoundationLayout.ts で定義した全プロパティ（currentSettings等を含む）がそのまま入ります
+    foundation: FOUNDATION_LAYOUT_META,
     apiCommon: {
       fileName: "YamatoApiCommon.tsx",
       layer: "窓口・外装",
@@ -188,7 +188,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（画像生成・クレジット減算完全統合版）
+// チャット送信用エンドポイント: POST /chat（画像生成・スマートクレジット分岐対応版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -204,12 +204,20 @@ app.post('/chat', async (c) => {
       userId?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
+      featureKey?: FeatureKey;
+      isMockFull?: boolean;
+      isMockSection?: "1" | "2";
+      isVoiceMode?: "drill" | "elaborate";
     }>();
+
+    console.log("📥 Received /chat request:", {
+      userId: body.userId,
+      appType: body.appType,
+      messageLength: body.message?.length
+    });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
-    const requestVisualAid = body.requestVisualAid || false;
-    const visualPrompt = body.visualPrompt;
 
     if (!userMessage) {
       return c.json({ error: 'Message is required' }, 400);
@@ -217,7 +225,8 @@ app.post('/chat', async (c) => {
 
     // 💡 0. 未ログインガード
     if (!body.userId) {
-      return c.json({ error: "Unauthorized", reply: "Authentication required to chat." }, 401);
+      console.warn("⚠️ Chat request rejected: Missing userId");
+      return c.json({ error: "Unauthorized", reply: "Authentication required to chat. Please log in." }, 401);
     }
 
     // 環境変数のフォールバック取得
@@ -230,43 +239,57 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 1. 画像生成が含まれるリクエストかどうかを判定し、featureKey を決定
-    const shouldGenerateImage = Boolean(requestVisualAid || visualPrompt);
-    const featureKey: FeatureKey = shouldGenerateImage ? 'imageAi' : 'textAi';
+    // 💡 1. リクエスト内容から必要なコストと featureKey をスマートに動的判定
+    const requiredCredits = determineRequiredCreditsFromPayload(body);
+    const featureKey: FeatureKey = requiredCredits >= 10 ? 'mockFull' 
+      : requiredCredits === 6 ? 'mockSection1' 
+      : requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate') ? 'voiceElaborate'
+      : requiredCredits === 4 ? 'imageAi' 
+      : requiredCredits === 3 ? 'voiceDrill' 
+      : 'textAi';
 
     let supabaseAdmin: any = null;
 
-    // 💡 2. サーバーサイドでのクレジット残高検証
+    // 💡 2. サーバーサイドでのクレジット残高スマート検証（「ゼロのとき」「足りないとき」を明確に分岐）
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
-      const { hasEnough, currentCredits, requiredCredits } = await validateUserCredits(supabaseAdmin, body.userId, featureKey);
+      const creditCheck = await validateUserCredits(supabaseAdmin, body.userId, featureKey);
+      console.log("💳 Credit check result:", creditCheck);
+
+      const { hasEnough, currentCredits } = creditCheck;
 
       if (!hasEnough) {
+        // パターンA: 残高が完全に 0 以下の場合
+        if (currentCredits <= 0) {
+          console.warn(`⚠️ Zero credits for user ${body.userId}`);
+          return c.json({
+            error: "ZERO_CREDITS",
+            message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
+            reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+            currentCredits,
+            requiredCredits
+          }, 402);
+        }
+
+        // パターンB: 残高はあるが、今回の機能のコスト（例: 画像4や模試6）に足りない場合
+        console.warn(`⚠️ Partial shortage for user ${body.userId}: current=${currentCredits}, required=${requiredCredits}`);
         return c.json({
-          reply: `Your current credit balance (${currentCredits} credits) is below the required amount (${requiredCredits} credits). Please top up or complete today's quiz!`,
-          error: "Insufficient credits",
-          required: requiredCredits,
-          current: currentCredits
+          error: "PARTIAL_SHORTAGE",
+          message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。（※テキストチャット（2クレジット）であればまだご利用いただけます）`,
+          reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}). Text chat is still available.`,
+          currentCredits,
+          requiredCredits
         }, 402);
       }
     } catch (dbErr: any) {
-      console.error("❌ Database error during credit validation:", dbErr.message);
+      console.error("❌ Database error during credit validation:", dbErr.message, dbErr.stack);
       return c.json({ error: "Database error during credit check", reply: "Failed to verify credit balance." }, 500);
     }
 
-    // 💡 3. クレジットの事前減算処理
-    if (supabaseAdmin && body.userId) {
-      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
-      if (!deductResult.success) {
-        console.warn("⚠️ Credit deduction failed:", deductResult.error);
-        return c.json({ reply: "Failed to deduct credits. Please check your balance.", error: "Credit deduction failed" }, 402);
-      }
-    }
-
-    // 4. サービスアカウントからアクセストークンを取得
+    // 3. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 5. システム指示の動的構築
+    // 4. システム指示の動的構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
@@ -321,7 +344,7 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 6. Vertex AI 用の会話履歴データを構築
+    // 5. Vertex AI 用の会話履歴データを構築
     const contents = [
       ...history.map((h) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
@@ -333,7 +356,7 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 7. Vertex AI のエンドポイントへリクエスト送信
+    // 6. Vertex AI のエンドポイントへリクエスト送信
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {
@@ -352,17 +375,19 @@ app.post('/chat', async (c) => {
 
     if (!vertexRes.ok) {
       const errText = await vertexRes.text();
+      console.error("❌ Vertex AI API Error:", errText);
       return c.json({ error: `Vertex AI API Error: ${errText}` }, 500);
     }
 
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 8. 画像生成の実行（必要な場合）
+    // 💡 7. 画像生成の実行（必要な場合）
     let imageUrl: string | undefined = undefined;
-    let promptToUse = visualPrompt;
+    let promptToUse = body.visualPrompt;
+    const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt || requiredCredits === 4);
 
-    if (!promptToUse && shouldGenerateImage) {
+    if (!promptToUse && shouldGenerateImage && requiredCredits === 4) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
     }
 
@@ -378,6 +403,16 @@ app.post('/chat', async (c) => {
         }
       } catch (err: any) {
         console.error("❌ Image generation error in /chat:", err.message);
+      }
+    }
+
+    // 💡 8. 【重要】AIの応答およびすべての生成処理が成功したこのタイミングで、機能に応じた正確なコスト分のクレジットを減算する
+    if (supabaseAdmin && body.userId) {
+      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
+      console.log("💳 Credit deduction result (post-success):", deductResult);
+      
+      if (!deductResult.success) {
+        console.warn("⚠️ Credit deduction failed post-generation:", deductResult.error);
       }
     }
 
