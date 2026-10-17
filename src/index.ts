@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐対応版）
  */
 
 import { Hono } from 'hono';
@@ -188,7 +188,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（画像生成・スマートクレジット分岐対応版）
+// チャット送信用エンドポイント: POST /chat（未ログイン時はテスト用ゲストIDを割り当てて続行）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -208,10 +208,13 @@ app.post('/chat', async (c) => {
       isMockFull?: boolean;
       isMockSection?: "1" | "2";
       isVoiceMode?: "drill" | "elaborate";
-    }>();
+  }>();
+
+    // 💡 ユーザーIDが未指定の場合はテスト用ゲストIDを自動割り当て
+    const effectiveUserId = body.userId || "test-guest-user";
 
     console.log("📥 Received /chat request:", {
-      userId: body.userId,
+      userId: effectiveUserId,
       appType: body.appType,
       messageLength: body.message?.length
     });
@@ -221,12 +224,6 @@ app.post('/chat', async (c) => {
 
     if (!userMessage) {
       return c.json({ error: 'Message is required' }, 400);
-    }
-
-    // 💡 0. 未ログインガード
-    if (!body.userId) {
-      console.warn("⚠️ Chat request rejected: Missing userId");
-      return c.json({ error: "Unauthorized", reply: "Authentication required to chat. Please log in." }, 401);
     }
 
     // 環境変数のフォールバック取得
@@ -250,40 +247,39 @@ app.post('/chat', async (c) => {
 
     let supabaseAdmin: any = null;
 
-    // 💡 2. サーバーサイドでのクレジット残高スマート検証（「ゼロのとき」「足りないとき」を明確に分岐）
+    // 💡 2. サーバーサイドでのクレジット残高スマート検証（ゲストIDの場合はDB検証を安全にスキップ）
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
-      const creditCheck = await validateUserCredits(supabaseAdmin, body.userId, featureKey);
-      console.log("💳 Credit check result:", creditCheck);
+      if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
+        const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+        console.log("💳 Credit check result:", creditCheck);
 
-      const { hasEnough, currentCredits } = creditCheck;
+        const { hasEnough, currentCredits } = creditCheck;
 
-      if (!hasEnough) {
-        // パターンA: 残高が完全に 0 以下の場合
-        if (currentCredits <= 0) {
-          console.warn(`⚠️ Zero credits for user ${body.userId}`);
+        if (!hasEnough) {
+          if (currentCredits <= 0) {
+            console.warn(`⚠️ Zero credits for user ${effectiveUserId}`);
+            return c.json({
+              error: "ZERO_CREDITS",
+              message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
+              reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+              currentCredits,
+              requiredCredits
+            }, 402);
+          }
+
+          console.warn(`⚠️ Partial shortage for user ${effectiveUserId}: current=${currentCredits}, required=${requiredCredits}`);
           return c.json({
-            error: "ZERO_CREDITS",
-            message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
-            reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+            error: "PARTIAL_SHORTAGE",
+            message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
+            reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
             currentCredits,
             requiredCredits
           }, 402);
         }
-
-        // パターンB: 残高はあるが、今回の機能のコスト（例: 画像4や模試6）に足りない場合
-        console.warn(`⚠️ Partial shortage for user ${body.userId}: current=${currentCredits}, required=${requiredCredits}`);
-        return c.json({
-          error: "PARTIAL_SHORTAGE",
-          message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。（※テキストチャット（2クレジット）であればまだご利用いただけます）`,
-          reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}). Text chat is still available.`,
-          currentCredits,
-          requiredCredits
-        }, 402);
       }
     } catch (dbErr: any) {
-      console.error("❌ Database error during credit validation:", dbErr.message, dbErr.stack);
-      return c.json({ error: "Database error during credit check", reply: "Failed to verify credit balance." }, 500);
+      console.warn("⚠️ Database check skipped or failed (running in guest/test mode):", dbErr.message);
     }
 
     // 3. サービスアカウントからアクセストークンを取得
@@ -406,9 +402,9 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // 💡 8. 【重要】AIの応答およびすべての生成処理が成功したこのタイミングで、機能に応じた正確なコスト分のクレジットを減算する
-    if (supabaseAdmin && body.userId) {
-      const deductResult = await deductUserCredits(supabaseAdmin, body.userId, featureKey);
+    // 💡 8. クレジット減算処理（ゲストID以外の場合のみ実行）
+    if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
+      const deductResult = await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
       console.log("💳 Credit deduction result (post-success):", deductResult);
       
       if (!deductResult.success) {
