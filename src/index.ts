@@ -324,6 +324,8 @@ app.post('/chat', async (c) => {
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
+      hasFiles: Boolean(body.imageBase64),           // 👈 画像の有無を渡す
+      assignedQuestion: body.assignedQuestion || "", // 👈 選択中の設問情報を渡す
       timeZone: body.timeZone,
       cityName: body.cityName,
     };

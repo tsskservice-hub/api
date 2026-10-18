@@ -1,9 +1,117 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ完全移行版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（Vision・ディスクレパンシーチェック統合版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+
+/**
+ * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルールを生成（LLMA準拠）
+ */
+function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
+  if (!hasFiles) return "";
+
+  const discrepancyWarnings = [
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/images/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: Running off-track means 100% wasted effort!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            No matter how wonderful your grammar is, if your content doesn't match the prompt, the real exam will ruthlessly award you <strong>"0 marks (Total Disaster)"</strong>.<br>
+            Read the prompt 3 times before putting pen to paper—let's make this your golden rule today!
+          </p>
+        </div>
+      </div>
+    `,
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/images/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: A grave for an off-topic answer!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            Even your hardest work becomes just scrap paper if you answer the wrong question. In the real exam, the assessor's red pen will strike without mercy.<br>
+            Take a deep breath, and double-check your chosen prompt before you write!
+          </p>
+        </div>
+      </div>
+    `,
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/images/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: The finish line is the other way!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            The goal is that way! No matter how brilliantly you write in Japanese, you won't cross the finish line if you are running in the wrong direction.<br>
+            Stop for a moment and reinstall today's theme firmly in your mind!
+          </p>
+        </div>
+      </div>
+    `
+  ];
+
+  const selectedWarningBlock = discrepancyWarnings[Math.floor(Math.random() * discrepancyWarnings.length)];
+
+  return `
+<input_initial_action>
+  - Trigger Condition: An image file of a handwritten response is uploaded by the student.
+  - Direct Vision Transcription & Echo Output:
+    1. First, explicitly state the assigned question and requirements:
+        "[Assigned Question] : "${assignedQuestion || "General VCE Writing Task"}""
+    2. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
+    3. Output the transcription strictly using the following markdown format block at the beginning of your response. Note that all introductory remarks and subsequent feedback/explanations must be written entirely in English:
+        "I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly for the final exam! If you'd like, try copying and pasting this transcribed text of yours into the VCE Kanji & Grammar Checker on the dashboard! It will visualize how many VCE kanji and VCE grammar points you used!✨
+        [Transcribed Text: <Insert your direct transcription here>]"
+</input_initial_action>
+
+<discrepancy_check>
+  - Pre-Feedback Comparison:
+    First, check if assigned_question is populated.
+    - If assigned_question is empty ("") or unselected, immediately apply CASE 0.
+    - If populated, compare the overall topic/theme of assigned_question vs the transcribed text from the uploaded image.
+    - Lenient Evaluation Rule: As long as the submitted text addresses the assigned question's general topic or theme, treat it as On-Topic. Do NOT trigger a discrepancy for minor misunderstandings, grammatical errors, or phrasing differences. ONLY trigger if completely off-topic.
+
+  - Mandatory Summary Header (Output this header in CASE 1 and CASE 2):
+    [What you chose] : "${assignedQuestion || "None"}"
+    [What to write] : (Brief bullet points of writing requirements in English)
+    [What you submitted] : (Brief summary of the submitted topic from the image in English)
+
+  - CASE 0: No Question Selected (Empty / Unselected Prompt)
+    - Action: Output ONLY the following Warning and terminate the session immediately:
+      "⚠ [Warning: No Question Selected]
+      It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨"
+
+  - CASE 1: On-Topic / Matching Prompt (Standard Flow)
+    - Action: After outputting the Mandatory Summary Header above, proceed directly with the full feedback and evaluation process in English.
+
+  - CASE 2: Discrepancy Detected (Completely off-topic or irrelevant)
+    - Action: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the randomly selected stamp-style lesson block below, and terminate the session immediately:
+      "🔴 [Major Warning: Discrepancy Detected]
+      This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] and [What you submitted] above to understand the difference, and re-upload your writing addressing the correct prompt.
+
+      ${selectedWarningBlock}
+
+      ⚠ [End of Session]
+      Due to the prompt discrepancy, this practice session has been terminated. Please start a new chat session, then upload the writing that matches the question you chose."
+</discrepancy_check>
+
+<language_requirement>
+  - CRITICAL RULE FOR IMAGE FEEDBACK: Except for the direct transcription of the student's Japanese handwritten text and quoted Japanese example sentences, ALL explanations, analyses, corrections, hints, and encouragement must be written entirely in English.
+</language_requirement>
+  `.trim();
+}
 
 /**
  * ★ ライティング特化のペース別インストラクション生成
@@ -66,6 +174,8 @@ export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
   exactCharacterCount?: number;    // エッセイの正確な文字数
   selectedTextType?: string;       // 選択されたテキストタイプ（Article, Speech 等）
   studentEssay?: string;           // 現在編集中のエッセイ本文
+  hasFiles?: boolean;              // 画像ファイルが添付されているかどうか
+  assignedQuestion?: string;       // 割り当てられた／選択された問題のテキスト
   timeZone?: string;
   cityName?: string;
 }
@@ -74,7 +184,15 @@ export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
  * EOY Writing Practice ヤマト固有のアイデンティティと、API側同期ナレッジを組み込む関数
  */
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
-  const { pace = "", exactCharacterCount = 0, selectedTextType = "", studentEssay = "", ...baseOptions } = options;
+  const { 
+    pace = "", 
+    exactCharacterCount = 0, 
+    selectedTextType = "", 
+    studentEssay = "", 
+    hasFiles = false,
+    assignedQuestion = "",
+    ...baseOptions 
+  } = options;
 
   // 💡 API側の同期済みナレッジ（syncedKnowledge）を any 型として安全に取得
   const syncedKnowledge = getSyncedKnowledge() as any;
@@ -96,6 +214,9 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
 
   // ペース別インストラクションの生成
   const paceInstructionText = getPaceInstruction(pace, charCount);
+
+  // 画像添付時のVisionハンドリングおよびディスクレパンシーチェック指示の生成
+  const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
 
   // 1. テキストタイプ（texttypes.json）のテキスト化
   let textTypesText = "";
@@ -197,6 +318,8 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   </persona_tone>
 
 ${paceInstructionText}
+
+${visionHandlingText}
 
 ${activeSessionContext}
 
