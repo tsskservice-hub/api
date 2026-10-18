@@ -7,7 +7,7 @@
 
 import { getFormattedTimeForZone } from "./time-utils";
 import { getCityWeatherContext } from "./weather-utils";
-import { getSyncedKnowledge } from "./sync-knowledge"; // 💡 同期済みナレッジのインポート
+import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 同期済みナレッジのインポート
 
 /**
  * 💡 メタデータの型定義（方針2: 型によるアップデート強制・抜け漏れ防止）

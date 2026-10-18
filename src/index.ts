@@ -26,7 +26,7 @@ import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supa
 import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
 
 // 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
-import { getSyncedKnowledge, setSyncedKnowledge } from './sync-knowledge';
+import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
 // 環境変数の型定義（柔軟なキー名に対応）
 type Bindings = {
@@ -128,7 +128,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Jwt-bearer&assertion=${jwt}`
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
   });
 
   if (!tokenRes.ok) {
@@ -152,15 +152,10 @@ app.post('/api/sync-knowledge', async (c) => {
   }
 
   try {
-    const body = await c.req.json();
+    const body = await c.req.json<any>();
     
-    // sync-knowledge.ts のストアにデータを保存
-    setSyncedKnowledge({
-      faqList: body.faqList || [],
-      pricePlans: body.pricePlans || {},
-      kanjiList: body.kanjiList || [],
-      vceCriteria: body.vceCriteria || {},
-    });
+    // api-sync-knowledge.ts のストアに受け取ったデータを丸ごと保存
+    setSyncedKnowledge(body);
 
     return c.json({ 
       success: true, 
@@ -236,7 +231,7 @@ app.post('/chat', async (c) => {
       exactCharacterCount?: number;
       timeZone?: string;
       cityName?: string;
-    }>();
+  }>();
 
     // 💡 ユーザーIDが未指定の場合はテスト用ゲストIDを自動割り当て
     const effectiveUserId = body.userId || "test-guest-user";
