@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（ナレッジ同期認証・未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐・portalData完全排除対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（ナレッジ同期認証・未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐・画像ビジョン解析対応版）
  */
 
 import { Hono } from 'hono';
@@ -168,7 +168,7 @@ app.post('/api/sync-knowledge', async (c) => {
   }
 });
 
-// スキーマ配信用エンドポイント（portalData廃止に伴い最小限のフィールド定義へ簡素化）
+// スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace'];
@@ -207,7 +207,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（未ログイン時はテスト用ゲストIDを割り当てて続行）
+// チャット送信用エンドポイント: POST /chat（画像ビジョン解析対応版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -221,6 +221,7 @@ app.post('/chat', async (c) => {
       userId?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
+      imageBase64?: string; // 👈 フロントエンドから送られてくる画像データ
       featureKey?: FeatureKey;
       isMockFull?: boolean;
       isMockSection?: "1" | "2";
@@ -231,7 +232,7 @@ app.post('/chat', async (c) => {
       exactCharacterCount?: number;
       timeZone?: string;
       cityName?: string;
-  }>();
+    }>();
 
     // 💡 ユーザーIDが未指定の場合はテスト用ゲストIDを自動割り当て
     const effectiveUserId = body.userId || "test-guest-user";
@@ -239,14 +240,15 @@ app.post('/chat', async (c) => {
     console.log("📥 Received /chat request:", {
       userId: effectiveUserId,
       appType: body.appType,
-      messageLength: body.message?.length
+      messageLength: body.message?.length,
+      hasImage: Boolean(body.imageBase64)
     });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
 
-    if (!userMessage) {
-      return c.json({ error: 'Message is required' }, 400);
+    if (!userMessage && !body.imageBase64) {
+      return c.json({ error: 'Message or image is required' }, 400);
     }
 
     // 環境変数のフォールバック取得
@@ -270,7 +272,7 @@ app.post('/chat', async (c) => {
 
     let supabaseAdmin: any = null;
 
-    // 💡 2. サーバーサイドでのクレジット残高スマート検証（ゲストIDの場合はDB検証を安全にスキップ）
+    // 💡 2. サーバーサイドでのクレジット残高スマート検証
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
       if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
@@ -308,7 +310,7 @@ app.post('/chat', async (c) => {
     // 3. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 4. システム指示の動的構築（💡 同期された知識データ / syncedKnowledge をベースに構築）
+    // 4. システム指示の動的構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
@@ -365,7 +367,25 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 5. Vertex AI 用の会話履歴データを構築
+    // 5. Vertex AI 用の会話履歴データを構築（✨ 画像（imageBase64）マルチモーダル対応）
+    const userParts: any[] = [{ text: userMessage || "Please check this handwritten answer image and give me feedback." }];
+
+    if (body.imageBase64) {
+      const matches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+      if (matches && matches.length === 3) {
+        const mimeType = matches[1];
+        const base64Data = matches[2];
+        
+        // Vertex AI が要求する inline_data 形式のパーツを追加してモデルに画像を見せる
+        userParts.push({
+          inline_data: {
+            mime_type: mimeType,
+            data: base64Data
+          }
+        });
+      }
+    }
+
     const contents = [
       ...history.map((h) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
@@ -373,7 +393,7 @@ app.post('/chat', async (c) => {
       })),
       {
         role: 'user',
-        parts: [{ text: userMessage }]
+        parts: userParts
       }
     ];
 
@@ -427,7 +447,7 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // 💡 8. クレジット減算処理（ゲストID以外の場合のみ実行）
+    // 💡 8. クレジット減算処理
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       const deductResult = await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
       console.log("💳 Credit deduction result (post-success):", deductResult);

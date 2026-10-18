@@ -1,6 +1,6 @@
 /**
  * @file imagen-service.ts
- * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（詳細デバッグログ付き）
+ * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（Cloudflare Workers完全対応版）
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -23,7 +23,7 @@ export async function generateVisualAid(
       ? { promptText: promptTextOrOptions }
       : promptTextOrOptions;
 
-  // 引数で渡された値、または環境変数（利用可能な場合）から取得
+  // Cloudflare Workers または Node.js 環境のプロセス環境変数を安全に参照
   const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
 
   const projectId =
@@ -31,12 +31,13 @@ export async function generateVisualAid(
     envObj?.VERTEX_AI_PROJECT_ID || 
     envObj?.GOOGLE_CLOUD_PROJECT;
 
-  const location = options.location || "global";
+  const location = options.location || "us-central1";
 
   const apiKey =
     options.apiKey ||
     envObj?.GEMINI_API_KEY || 
-    envObj?.GOOGLE_GENAI_API_KEY;
+    envObj?.GOOGLE_GENAI_API_KEY ||
+    envObj?.VERTEX_AI_KEY;
 
   console.log("🔍 [imagen-service.ts] 初期化パラメータ確認:", {
     hasProjectId: Boolean(projectId),
@@ -48,21 +49,21 @@ export async function generateVisualAid(
 
   let ai: GoogleGenAI;
 
-  if (apiKey) {
-    ai = new GoogleGenAI({ apiKey });
-  } else if (projectId) {
-    ai = new GoogleGenAI({
-      enterprise: true,
-      project: projectId,
-      location: location,
-    });
-  } else {
-    throw new Error(
-      "Vertex AI の Project ID または API Key が設定されていません。"
-    );
-  }
-
   try {
+    if (apiKey) {
+      ai = new GoogleGenAI({ apiKey });
+    } else if (projectId) {
+      ai = new GoogleGenAI({
+        enterprise: true,
+        project: projectId,
+        location: location,
+      });
+    } else {
+      throw new Error(
+        "Vertex AI の Project ID または API Key が設定されていません。"
+      );
+    }
+
     const modelName = "gemini-3.1-flash-lite-image";
 
     console.log(`🚀 [imagen-service.ts] 画像生成モデルリクエスト開始: ${modelName} (location: ${location})`);
@@ -78,7 +79,7 @@ export async function generateVisualAid(
       ],
     });
 
-    console.log("📥 [imagen-service.ts] AIモデルからのレスポンスを受しました。構造を解析します...");
+    console.log("📥 [imagen-service.ts] AIモデルからのレスポンスを受信しました。構造を解析します...");
 
     // レスポンスの候補（candidates）から画像パート（inlineData）を抽出
     const candidate = response.candidates?.[0];
@@ -92,11 +93,12 @@ export async function generateVisualAid(
     let base64Image: string | undefined = undefined;
 
     for (let i = 0; i < parts.length; i++) {
-      const part = parts[i];
-      // インライン画像のデータが含まれているかチェック
-      if (part.inlineData && part.inlineData.data) {
-        base64Image = part.inlineData.data;
-        console.log(`✨ [imagen-service.ts] パーツ[${i}]で inlineData を検出しました (データ長: ${base64Image.length})`);
+      const part = parts[i] as any;
+      // インライン画像のデータが含まれているかチェック (inlineData または inline_data に対応)
+      const inlineData = part.inlineData || part.inline_data;
+      if (inlineData && inlineData.data) {
+        base64Image = inlineData.data;
+        console.log(`✨ [imagen-service.ts] パーツ[${i}]で inlineData を検出しました (データ長: ${base64Image?.length})`);
         break;
       }
     }

@@ -59,7 +59,7 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 }
 
 /**
- * EOY Writing Practice プロンプト生成用のオプション（portalDataを排除しシンプルに定義）
+ * EOY Writing Practice プロンプト生成用のオプション
  */
 export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
   pace?: string;                   // 指導ペース（accelerated, normal, steady）
@@ -76,17 +76,20 @@ export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
   const { pace = "", exactCharacterCount = 0, selectedTextType = "", studentEssay = "", ...baseOptions } = options;
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）を直接取得
-  const syncedKnowledge = getSyncedKnowledge();
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）を any 型として安全に取得
+  const syncedKnowledge = getSyncedKnowledge() as any;
 
-  const effectiveTextTypes = syncedKnowledge.vceCriteria?.textTypes || {};
-  const effectiveGrammarList = syncedKnowledge.vceCriteria?.grammarList || {};
-  const effectiveWritingStyles = syncedKnowledge.vceCriteria?.writingStyles || {};
-  const effectiveWrittenCriteria = syncedKnowledge.vceCriteria?.eoyWrittenCriteria || {};
-  const effectiveWrittenReport = syncedKnowledge.vceCriteria?.eoyWrittenReport2025 || {};
-  const effectiveWrittenSpec = syncedKnowledge.vceCriteria?.eoyWrittenSpec || {};
-  const effectiveKanjiList = syncedKnowledge.kanjiList || [];
-  const effectiveFaqList = syncedKnowledge.faqList || [];
+  // 指定された各データを安全に抽出（エラーを回避）
+  const effectiveKanjiList = syncedKnowledge?.vceResources?.kanjiList || syncedKnowledge?.kanjiList || [];
+  const effectiveVocabularyList = syncedKnowledge?.vceResources?.vceVocabularyList || syncedKnowledge?.vceVocabularyList || [];
+  const effectiveWritingExamQuestions = syncedKnowledge?.vceResources?.writingExamQuestions || syncedKnowledge?.writingExamQuestions || [];
+  const effectiveTextTypes = syncedKnowledge?.vceResources?.textTypes || syncedKnowledge?.vceCriteria?.textTypes || {};
+  const effectiveGrammarList = syncedKnowledge?.vceResources?.grammarList || syncedKnowledge?.vceCriteria?.grammarList || {};
+  const effectiveWritingStyles = syncedKnowledge?.vceResources?.writingStyles || syncedKnowledge?.vceCriteria?.writingStyles || {};
+  const effectiveWrittenCriteria = syncedKnowledge?.vceCriteria?.eoyWrittenCriteria || {};
+  const effectiveWrittenReport = syncedKnowledge?.vceCriteria?.eoyWrittenReport2025 || {};
+  const effectiveWrittenSpec = syncedKnowledge?.vceCriteria?.eoyWrittenSpec || {};
+  const effectiveFaqList = syncedKnowledge?.faqList || [];
 
   const essayText = studentEssay;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : essayText.length;
@@ -94,7 +97,7 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   // ペース別インストラクションの生成
   const paceInstructionText = getPaceInstruction(pace, charCount);
 
-  // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
+  // 1. テキストタイプ（texttypes.json）のテキスト化
   let textTypesText = "";
   if (effectiveTextTypes) {
     if (Array.isArray(effectiveTextTypes)) {
@@ -164,8 +167,10 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     ? (typeof effectiveWrittenSpec === 'string' ? effectiveWrittenSpec : JSON.stringify(effectiveWrittenSpec, null, 2))
     : "  * VCE End-of-Year Written Examination Specifications & Section Layouts.";
 
-  // 7. 漢字カウント
-  const kanjiCount = effectiveKanjiList && Array.isArray(effectiveKanjiList) ? effectiveKanjiList.length : "Standard VCE Core";
+  // 7. 各種リソースの件数確認
+  const kanjiCount = Array.isArray(effectiveKanjiList) ? effectiveKanjiList.length : "Standard VCE Core";
+  const vocabularyCount = Array.isArray(effectiveVocabularyList) ? effectiveVocabularyList.length : "Standard VCE Core";
+  const writingExamQuestionsCount = Array.isArray(effectiveWritingExamQuestions) ? effectiveWritingExamQuestions.length : "Standard VCE Core";
 
   // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
   let activeSessionContext = "";
@@ -210,8 +215,11 @@ ${writingStylesText}
 ${grammarText}
       * Encourage students to incorporate sophisticated VCE-level grammar structures rather than relying solely on basic expressions.
 
-    - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}):
-      * Advise students on appropriate kanji usage and advanced vocabulary suitable for VCE external written examinations.
+    - Vocabulary, Kanji & Exam Questions Standards:
+      * Kanji Count Reference: ${kanjiCount} items available.
+      * Vocabulary List Reference: ${vocabularyCount} items available.
+      * Writing Exam Questions Reference: ${writingExamQuestionsCount} past/practice items available.
+      * Advise students on appropriate kanji usage, advanced vocabulary, and exam question alignment suitable for VCE external written examinations.
 
     - End-of-Year Written Examination Specifications:
 ${eoySpecText}
