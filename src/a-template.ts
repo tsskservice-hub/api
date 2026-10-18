@@ -1,17 +1,17 @@
 /**
- * @file a-template.tsx
- * @description 新しいヤマト（AIペルソナ）を作成するための汎用テンプレート。
+ * @file a-template.ts
+ * @description 新しいヤマト（AIペルソナ）を作成するための汎用テンプレート（portalData完全排除・同期ナレッジ対応版）。
  * 
  * ==============================================================================
  * 🚀 [FoundationLayout.ts] (エンジン搭載の土台)
- *  └── 🛠️ [YamatoApiCommon.tsx] (ロケットの外装・窓口)
- *       └── 👨‍✈️ [a-template.ts のひな形にペルソナを入れる] (乗組員)
- *            ↓
- *      🌟 完成：個別ヤマト！
+ *   └── 🛠️ [YamatoApiCommon.tsx] (ロケットの外装・窓口)
+ *         └── 👨‍✈️ [a-template.ts のひな形にペルソナを入れる] (乗組員)
+ *              ↓
+ *           🌟 完成：個別ヤマト！
  * ==============================================================================
  * 
  * 【新しいヤマトを作るときはどっちを開く？】
- * - 新しいヤマトを作るときは、まずこの **`a-template.tsx`** を開きます（ここがスタート地点です）。
+ * - 新しいヤマトを作るときは、まずこの **`a-template.ts`** を開きます（ここがスタート地点です）。
  * - `YamatoApiCommon.tsx` は、いわば裏方で、すべてのヤマトの共通土台です。全ヤマト共通のルールを
  *   変更したいとき以外、新しいヤマトを作るたびに触る必要はありません。
  * ==============================================================================
@@ -47,7 +47,7 @@ export interface CustomYamatoOptions extends YamatoApiCommonOptions {
  * （新しいヤマトを作る際は、関数名を build[Name]YamatoPrompt に変更してください）
  */
 export async function buildCustomYamatoPrompt(options: CustomYamatoOptions = {}): Promise<string> {
-  const { portalData = {}, ...baseOptions } = options;
+  const { ...baseOptions } = options;
 
   // ==========================================
   // ここに「このヤマト固有の設定（ペルソナ・役割）」を書く
@@ -64,6 +64,8 @@ export async function buildCustomYamatoPrompt(options: CustomYamatoOptions = {})
 </system_context>
   `.trim();
 
-  // YamatoApiCommon に流し込んで共通レイアウトと結合する
-  return await YamatoApiCommon(YAMATO_SPECIFIC_CONTEXT, { portalData, ...baseOptions });
+  // YamatoApiCommon に流し込んで共通レイアウトと結合する（portalDataを排除）
+  return await YamatoApiCommon(YAMATO_SPECIFIC_CONTEXT, { ...baseOptions });
 }
+
+export default buildCustomYamatoPrompt;

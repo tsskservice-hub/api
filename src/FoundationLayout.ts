@@ -1,12 +1,13 @@
 /**
  * @file FoundationLayout.ts
  * @description バックエンド専用の共通レイアウト・コンテキスト管理層（旧base-rules.ts）
- * 時間・天気の取得、動的FAQのコンパイル、すべてのヤマトで共有される普遍的なベースルールを提供します。
+ * 時間・天気の取得、動的FAQのコンパイル（同期ナレッジ対応版）、すべてのヤマトで共有される普遍的なベースルールを提供します。
  * 💡【開発ルール】プロンプトやルールを変更した際は、必ず直下の FOUNDATION_LAYOUT_META も同時に更新してください。
  */
 
 import { getFormattedTimeForZone } from "./time-utils";
 import { getCityWeatherContext } from "./weather-utils";
+import { getSyncedKnowledge } from "./sync-knowledge"; // 💡 同期済みナレッジのインポート
 
 /**
  * 💡 メタデータの型定義（方針2: 型によるアップデート強制・抜け漏れ防止）
@@ -37,7 +38,7 @@ export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
   fileName: "FoundationLayout.ts",
   layer: "土台 (機体)",
   role: "すべてのプロンプトの根本的なルールやエンジンを組み立てる大元",
-  description: "時間・天気の動的取得、動的FAQのコンパイル、ユーザーメタデータのプレースホルダー置換など、すべてのヤマトで共有される普遍的なベースルールを提供します。",
+  description: "時間・天気の動的取得、同期済みナレッジ・動的FAQのコンパイル、ユーザーメタデータのプレースホルダー置換など、すべてのヤマトで共有される普遍的なベースルールを提供します。",
   
   keyOptions: [
     "studentEmail",
@@ -66,11 +67,11 @@ export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
       "時間・天気に関する質問にはキャラを保ったまま英語で心地よく答え、自然に学習へ誘導"
     ],
     knowledgeBank: [
-      "総合FAQデータベース（faqList）の自動コンパイルと埋め込み",
+      "総合FAQデータベース（yamato-portal から同期された syncedKnowledge.faqList）の自動コンパイルと埋め込み",
       "VCE試験、口頭・筆記テスト、原稿用紙フォーマット等の専門的ガイダンスの提供"
     ],
     visualGeneration: [
-      "イラスト・図解の要求時、または requestVisualAid 有効時に教育적コンセプトの英語画像プロンプト（visualPrompt）を構築"
+      "イラスト・図解の要求時、または requestVisualAid 有効時に教育的コンセプトの英語画像プロンプト（visualPrompt）を構築"
     ],
     turnAndFeedback: [
       "途中ターン（is_final_turn = false）: やまと先生として適切なガイダンスや次ステップを提案",
@@ -100,7 +101,7 @@ export interface FoundationLayoutOptions {
   isFinalTurn?: boolean | string;
   attachedFiles?: string;
   requestVisualAid?: boolean | string;
-  faqList?: Array<any>;      // フロントエンドから動的に渡されるFAQデータ
+  faqList?: Array<any>;      // リクエストから動的に渡されるFAQデータ
   timeZone?: string;
   cityName?: string;
 }
@@ -203,17 +204,22 @@ export async function buildFoundationLayoutPrompt(
     console.warn("⚠️ [FoundationLayout.ts] 天気情報の取得に失敗しました:", e.message);
   }
 
-  // 3. FAQデータベースをテキスト形式にコンパイル
+  // 3. 💡 FAQデータベースの決定（リクエストから渡された faqList を最優先、空の場合は API側で同期された syncedKnowledge.faqList を採用）
+  const syncedKnowledge = getSyncedKnowledge();
+  const effectiveFaqList = (faqList && faqList.length > 0) 
+    ? faqList 
+    : (syncedKnowledge.faqList || []);
+
   let faqKnowledgeBankText = "";
-  if (faqList && Array.isArray(faqList) && faqList.length > 0) {
-    faqKnowledgeBankText = faqList
+  if (effectiveFaqList && Array.isArray(effectiveFaqList) && effectiveFaqList.length > 0) {
+    faqKnowledgeBankText = effectiveFaqList
       .map(
         (faq: any) =>
           `* ID: ${faq.id || "N/A"} [Category: ${faq.category || "general"}] (Tags: ${faq.tags?.join(", ") || ""})\n  - Q (En): ${faq.questionEn || faq.questions?.[0] || ""}\n  - Q (Jp): ${faq.questionJp || ""}\n  - Expert Guidance & Answer: ${faq.expertGuidance || faq.answerHtml || ""}`
       )
       .join("\n\n");
   } else {
-    faqKnowledgeBankText = "  * No specific FAQ database items passed for this session.";
+    faqKnowledgeBankText = "  * No specific FAQ database items passed or synchronized for this session.";
   }
 
   const isFinalStr = typeof isFinalTurn === "boolean" ? (isFinalTurn ? "true" : "false") : String(isFinalTurn);

@@ -1,58 +1,48 @@
 /**
  * @file genkoyoshi-editor-vce.ts
- * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（YamatoApiCommon・各種VCE基準データ完全連動版）
+ * @description VCE原稿用紙エディターヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ完全移行版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { getSyncedKnowledge } from "./sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ フロントエンド（yamato-portal）から動的に渡されるVCE原稿用紙データのデフォルト雛形（単一のソース・オブ・トゥルース）
- * このオブジェクトを起点に、型定義とキーの動的抽出を両立させます。
- */
-export const defaultVcePortalData = {
-  studentName: "",
-  selectedTextType: "",     // 選択されたテキストタイプ（Article, Speech, Letter 等）
-  studentEssay: "",         // 現在編集中の文章
-  kanjiList: [] as Array<any>,        // kanji-list.json のデータを受け取る
-  textTypes: {} as any,               // texttypes.json のデータ（オブジェクト形式）を受け取る
-  grammarList: {} as any,             // vce-grammar-list.ts のデータを受け取る
-  vocabList: [] as Array<any>,        // vce-vocabulary-list.json のデータを受け取る
-  writingStyles: {} as any,           // writing-styles.ts のデータを受け取る
-  u3o3Descriptor: {} as any,          // vce-u3o3-descriptor.ts のデータを受け取る
-  u4o3Descriptor: {} as any,          // vce-u4o3-descriptor.ts のデータを受け取る
-  eoyWrittenCriteria: {} as any,      // vce-eoy-written-criteria.ts のデータを受け取る
-  faqList: [] as Array<any>,          // 総合FAQデータバンクを受け取る
-  timeZone: "",
-  cityName: "",
-};
-
-/**
- * ★ 上記のデフォルトオブジェクトから自動的に型（TypeScript Interface相当）を生成
- */
-export type VceGenkoyoshiPortalData = typeof defaultVcePortalData;
-
-/**
- * VCE原稿用紙プロンプト生成用のオプション（YamatoApiCommonオプション + VCEポータルデータ）
+ * VCE原稿用紙プロンプト生成用のオプション（portalDataを排除し、必要なパラメータのみ定義）
  */
 export interface VceGenkoyoshiPromptOptions extends YamatoApiCommonOptions {
-  portalData?: VceGenkoyoshiPortalData;
+  studentName?: string;
+  selectedTextType?: string;    // 選択されたテキストタイプ（Article, Speech, Letter 等）
+  studentEssay?: string;        // 現在編集中の文章
+  timeZone?: string;
+  cityName?: string;
 }
 
 /**
- * VCE原稿用紙エディターヤマト固有のアイデンティティと、動的VCEデータを組み込む関数
+ * VCE原稿用紙エディターヤマト固有のアイデンティティと、API同期VCEデータを組み込む関数
  */
 export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptions = {}): Promise<string> {
-  // ★ 型エラーが起きないよう、portalData に VceGenkoyoshiPortalData 型を明示的にキャスト
-  const { portalData = {} as VceGenkoyoshiPortalData, ...baseOptions } = options;
+  const { selectedTextType = "", studentEssay = "", ...baseOptions } = options;
 
-  // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
+  // 💡 API側で一元管理・同期されているナレッジ（syncedKnowledge）を取得
+  const syncedKnowledge = getSyncedKnowledge();
+
+  const effectiveTextTypes = syncedKnowledge.vceCriteria?.textTypes || {};
+  const effectiveGrammarList = syncedKnowledge.vceCriteria?.grammarList || {};
+  const effectiveWritingStyles = syncedKnowledge.vceCriteria?.writingStyles || {};
+  const effectiveU3O3 = syncedKnowledge.vceCriteria?.u3o3Descriptor || {};
+  const effectiveU4O3 = syncedKnowledge.vceCriteria?.u4o3Descriptor || {};
+  const effectiveWrittenCriteria = syncedKnowledge.vceCriteria?.eoyWrittenCriteria || {};
+  const effectiveKanjiList = syncedKnowledge.kanjiList || [];
+  const effectiveFaqList = syncedKnowledge.faqList || [];
+
+  // 1. テキストタイプ（フォーマット・書式）のテキスト化
   let textTypesText = "";
-  if (portalData.textTypes) {
-    if (Array.isArray(portalData.textTypes)) {
-      textTypesText = portalData.textTypes
+  if (effectiveTextTypes) {
+    if (Array.isArray(effectiveTextTypes)) {
+      textTypesText = effectiveTextTypes
         .map((t: any) => `  * ${t.title || t.name || t.type}: ${t.purpose || t.description || "VCE text type format guideline"}`)
         .join("\n");
-    } else if (typeof portalData.textTypes === 'object') {
-      textTypesText = Object.entries(portalData.textTypes)
+    } else if (typeof effectiveTextTypes === 'object') {
+      textTypesText = Object.entries(effectiveTextTypes)
         .map(([key, val]: [string, any]) => {
           const title = val?.title || key;
           const purpose = val?.purpose || "";
@@ -62,7 +52,6 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
         .join("\n");
     }
   } else {
-    // デフォルトのVCE主要テキストタイプ（書式）
     textTypesText = `
   * Article (記事): Title, Author's name, Introduction, Body, Conclusion. Plain or Polite style.
   * Speech Script (スピーチ原稿): Title, Greeting (e.g., こんにちは), Introduction, Body, Closing (e.g., ありがとうございました). Polite style.
@@ -72,15 +61,15 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
   * Report (レポート): Title, Author, Objective facts, Structured sections.`;
   }
 
-  // 2. VCE文法リスト（vce-grammar-list.ts）のテキスト化
+  // 2. VCE文法リストのテキスト化
   let grammarText = "";
-  if (portalData.grammarList) {
-    if (Array.isArray(portalData.grammarList)) {
-      grammarText = portalData.grammarList
+  if (effectiveGrammarList) {
+    if (Array.isArray(effectiveGrammarList)) {
+      grammarText = effectiveGrammarList
         .map((g: any) => `  * ${g.title || g.item || JSON.stringify(g)}`)
         .join("\n");
-    } else if (typeof portalData.grammarList === 'object') {
-      grammarText = Object.entries(portalData.grammarList)
+    } else if (typeof effectiveGrammarList === 'object') {
+      grammarText = Object.entries(effectiveGrammarList)
         .map(([key, val]: [string, any]) => `  * ${key}: ${val?.description || JSON.stringify(val)}`)
         .join("\n");
     }
@@ -88,45 +77,44 @@ export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptio
     grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
-  // 3. ライティングスタイル / 目的（writing-styles.ts）のテキスト化
+  // 3. ライティングスタイル / 目的のテキスト化
   let writingStylesText = "";
-  if (portalData.writingStyles) {
-    if (typeof portalData.writingStyles === 'string') {
-      writingStylesText = portalData.writingStyles;
-    } else if (typeof portalData.writingStyles === 'object') {
-      writingStylesText = JSON.stringify(portalData.writingStyles, null, 2);
+  if (effectiveWritingStyles) {
+    if (typeof effectiveWritingStyles === 'string') {
+      writingStylesText = effectiveWritingStyles;
+    } else if (typeof effectiveWritingStyles === 'object') {
+      writingStylesText = JSON.stringify(effectiveWritingStyles, null, 2);
     }
   } else {
     writingStylesText = "  * Purpose and styles: Evaluative, Persuasive, Imaginative, Informative, Personal / Recount.";
   }
 
-  // 4. Unit 3 Outcome 3 ディスクリプター（vce-u3o3-descriptor.ts）のテキスト化
-  let u3o3Text = portalData.u3o3Descriptor 
-    ? (typeof portalData.u3o3Descriptor === 'string' ? portalData.u3o3Descriptor : JSON.stringify(portalData.u3o3Descriptor, null, 2))
+  // 4. Unit 3 Outcome 3 ディスクリプターのテキスト化
+  let u3o3Text = effectiveU3O3 
+    ? (typeof effectiveU3O3 === 'string' ? effectiveU3O3 : JSON.stringify(effectiveU3O3, null, 2))
     : "  * VCE Unit 3 Outcome 3 assessment standards and performance descriptors.";
 
-  // 5. Unit 4 Outcome 3 ディスクリプター（vce-u4o3-descriptor.ts）のテキスト化
-  let u4o3Text = portalData.u4o3Descriptor 
-    ? (typeof portalData.u4o3Descriptor === 'string' ? portalData.u4o3Descriptor : JSON.stringify(portalData.u4o3Descriptor, null, 2))
+  // 5. Unit 4 Outcome 3 ディスクリプターのテキスト化
+  let u4o3Text = effectiveU4O3 
+    ? (typeof effectiveU4O3 === 'string' ? effectiveU4O3 : JSON.stringify(effectiveU4O3, null, 2))
     : "  * VCE Unit 4 Outcome 3 assessment standards and performance descriptors.";
 
-  // 6. 期末筆記試験採点基準（vce-eoy-written-criteria.ts）のテキスト化
-  let eoyCriteriaText = portalData.eoyWrittenCriteria 
-    ? (typeof portalData.eoyWrittenCriteria === 'string' ? portalData.eoyWrittenCriteria : JSON.stringify(portalData.eoyWrittenCriteria, null, 2))
+  // 6. 期末筆記試験採点基準のテキスト化
+  let eoyCriteriaText = effectiveWrittenCriteria 
+    ? (typeof effectiveWrittenCriteria === 'string' ? effectiveWrittenCriteria : JSON.stringify(effectiveWrittenCriteria, null, 2))
     : "  * VCE End-of-Year Written Examination Assessment Criteria (Content, Grammar, Vocabulary, Structure & Spelling).";
 
-  // 7. 漢字・語彙カウント
-  const kanjiCount = portalData.kanjiList && Array.isArray(portalData.kanjiList) ? portalData.kanjiList.length : "Standard VCE Core";
-  const vocabCount = portalData.vocabList && Array.isArray(portalData.vocabList) ? portalData.vocabList.length : "VCE Core";
+  // 7. 漢字カウント
+  const kanjiCount = effectiveKanjiList && Array.isArray(effectiveKanjiList) ? effectiveKanjiList.length : "Standard VCE Core";
 
   // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
   let activeSessionContext = "";
-  if (portalData.selectedTextType || portalData.studentEssay) {
+  if (selectedTextType || studentEssay) {
     activeSessionContext = `
   <current_student_work>
-    - Selected Text Type (Format): ${portalData.selectedTextType || "Not specified yet"}
+    - Selected Text Type (Format): ${selectedTextType || "Not specified yet"}
     - Current Student Essay / Text:
-      "${portalData.studentEssay || "No essay provided yet."}"
+      "${studentEssay || "No essay provided yet."}"
   </current_student_work>
 `;
   }
@@ -149,17 +137,17 @@ ${activeSessionContext}
       * **Text Types** refer strictly to the physical format, layout, and conventions of the writing (e.g., Article, Speech script, Personal Letter, Email, Journal/Diary, Report, Story, Message, Review). When a student asks about text types, you MUST explain these specific formats, structures, greetings, and layouts based on the provided data.
       * **Writing Styles / Kinds of Writing** refer to the purpose or approach of communication (e.g., Persuasive, Evaluative, Imaginative, Informative, Personal). Never confuse text type formats with writing purposes.
 
-    - Supported Text Types & Format Guidelines (texttypes.json):
+    - Supported Text Types & Format Guidelines:
 ${textTypesText}
 
-    - Writing Styles & Purposes (writing-styles.ts):
+    - Writing Styles & Purposes:
 ${writingStylesText}
 
     - VCE Grammar Standards:
 ${grammarText}
       * Encourage students to incorporate sophisticated VCE-level grammar structures rather than relying solely on basic expressions.
 
-    - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}, VCE Vocab Items: ${vocabCount}):
+    - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}):
       * Advise students on appropriate kanji usage and advanced vocabulary suitable for VCE external and school-assessed coursework (SACs).
 
     - Unit Outcomes & Assessment Descriptors:
@@ -182,13 +170,12 @@ ${eoyCriteriaText}
 </system_context>
 `.trim();
 
-  // YamatoApiCommon を通して、時間・天気・FAQ・共通ルールを自動統合して返却
+  // YamatoApiCommon を通して、時間・天気・同期されたfaqList・共通ルールを自動統合して返却
   return await YamatoApiCommon(VCE_GENKOYOSHI_SPECIFIC_CONTEXT, {
-    portalData,
-    faqList: portalData.faqList,
-    timeZone: portalData.timeZone,
-    cityName: portalData.cityName,
     ...baseOptions,
+    faqList: effectiveFaqList,
+    timeZone: options.timeZone,
+    cityName: options.cityName,
   });
 }
 

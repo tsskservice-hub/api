@@ -1,8 +1,9 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（YamatoApiCommon・各種VCE基準データ・2025レポート・試験仕様完全連動版・ペイス対応）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ完全移行版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { getSyncedKnowledge } from "./sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
  * ★ ライティング特化のペース別インストラクション生成
@@ -46,7 +47,7 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 
   return `
 <pace_module_steady>
-- Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉).
+- Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, ✨, 💪, 🎉).
 - Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
 - Required Output Structure:
   🟡 [VCE-Aligned Estimation Band]
@@ -58,63 +59,50 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 }
 
 /**
- * ★ フロントエンド（yamato-portal）から動的に渡されるEOY Writing Practiceデータのデフォルト雛形
- */
-export const defaultEoyWritingPortalData = {
-  studentName: "",
-  selectedTextType: "",        // 選択されたテキストタイプ（Article, Speech, Letter 等）
-  studentEssay: "",            // 現在編集中の文章
-  kanjiList: [] as Array<any>,         // kanji-list.json のデータを受け取る
-  textTypes: {} as any,                // texttypes.json のデータを受け取る
-  grammarList: {} as any,              // vce-grammar-list.ts のデータを受け取る
-  vocabList: [] as Array<any>,         // vce-vocabulary-list.json のデータを受け取る
-  writingStyles: {} as any,            // writing-styles.ts のデータを受け取る
-  eoyWrittenCriteria: {} as any,       // vce-eoy-written-criteria.ts のデータを受け取る
-  eoyWrittenReport2025: {} as any,     // vce-eoy-written-report2025.ts のデータを受け取る
-  eoyWrittenSpec: {} as any,           // vce-eoy-written-spec.ts のデータを受け取る
-  faqList: [] as Array<any>,           // 総合FAQデータバンクを受け取る
-  timeZone: "",
-  cityName: "",
-  pace: "",                            // 指導ペース（accelerated, normal, steady）
-};
-
-/**
- * ★ 上記のデフォルトオブジェクトから自動的に型を生成
- */
-export type EoyWritingPortalData = typeof defaultEoyWritingPortalData;
-
-/**
- * EOY Writing Practice プロンプト生成用のオプション
+ * EOY Writing Practice プロンプト生成用のオプション（portalDataを排除しシンプルに定義）
  */
 export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
-  portalData?: EoyWritingPortalData;
-  pace?: string;                       // オプション単体でも指定可能にする
-  exactCharacterCount?: number;        // エッセイの正確な文字数
+  pace?: string;                   // 指導ペース（accelerated, normal, steady）
+  exactCharacterCount?: number;    // エッセイの正確な文字数
+  selectedTextType?: string;       // 選択されたテキストタイプ（Article, Speech 等）
+  studentEssay?: string;           // 現在編集中のエッセイ本文
+  timeZone?: string;
+  cityName?: string;
 }
 
 /**
- * EOY Writing Practice ヤマト固有のアイデンティティと、動的VCEデータを組み込む関数
+ * EOY Writing Practice ヤマト固有のアイデンティティと、API側同期ナレッジを組み込む関数
  */
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
-  const { portalData = {} as EoyWritingPortalData, ...baseOptions } = options;
+  const { pace = "", exactCharacterCount = 0, selectedTextType = "", studentEssay = "", ...baseOptions } = options;
 
-  // ペースと文字数の取得（portalData内またはoptionsトップレベルから柔軟に取得）
-  const pace = options.pace || portalData.pace || "";
-  const essayText = portalData.studentEssay || "";
-  const exactCharacterCount = options.exactCharacterCount ?? essayText.length;
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）を直接取得
+  const syncedKnowledge = getSyncedKnowledge();
+
+  const effectiveTextTypes = syncedKnowledge.vceCriteria?.textTypes || {};
+  const effectiveGrammarList = syncedKnowledge.vceCriteria?.grammarList || {};
+  const effectiveWritingStyles = syncedKnowledge.vceCriteria?.writingStyles || {};
+  const effectiveWrittenCriteria = syncedKnowledge.vceCriteria?.eoyWrittenCriteria || {};
+  const effectiveWrittenReport = syncedKnowledge.vceCriteria?.eoyWrittenReport2025 || {};
+  const effectiveWrittenSpec = syncedKnowledge.vceCriteria?.eoyWrittenSpec || {};
+  const effectiveKanjiList = syncedKnowledge.kanjiList || [];
+  const effectiveFaqList = syncedKnowledge.faqList || [];
+
+  const essayText = studentEssay;
+  const charCount = exactCharacterCount > 0 ? exactCharacterCount : essayText.length;
 
   // ペース別インストラクションの生成
-  const paceInstructionText = getPaceInstruction(pace, exactCharacterCount);
+  const paceInstructionText = getPaceInstruction(pace, charCount);
 
   // 1. テキストタイプ（texttypes.json：フォーマット・書式）のテキスト化
   let textTypesText = "";
-  if (portalData.textTypes) {
-    if (Array.isArray(portalData.textTypes)) {
-      textTypesText = portalData.textTypes
+  if (effectiveTextTypes) {
+    if (Array.isArray(effectiveTextTypes)) {
+      textTypesText = effectiveTextTypes
         .map((t: any) => `  * ${t.title || t.name || t.type}: ${t.purpose || t.description || "VCE text type format guideline"}`)
         .join("\n");
-    } else if (typeof portalData.textTypes === 'object') {
-      textTypesText = Object.entries(portalData.textTypes)
+    } else if (typeof effectiveTextTypes === 'object') {
+      textTypesText = Object.entries(effectiveTextTypes)
         .map(([key, val]: [string, any]) => {
           const title = val?.title || key;
           const purpose = val?.purpose || "";
@@ -133,15 +121,15 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   * Report (レポート): Title, Author, Objective facts, Structured sections.`;
   }
 
-  // 2. VCE文法リスト（vce-grammar-list.ts）のテキスト化
+  // 2. VCE文法リストのテキスト化
   let grammarText = "";
-  if (portalData.grammarList) {
-    if (Array.isArray(portalData.grammarList)) {
-      grammarText = portalData.grammarList
+  if (effectiveGrammarList) {
+    if (Array.isArray(effectiveGrammarList)) {
+      grammarText = effectiveGrammarList
         .map((g: any) => `  * ${g.title || g.item || JSON.stringify(g)}`)
         .join("\n");
-    } else if (typeof portalData.grammarList === 'object') {
-      grammarText = Object.entries(portalData.grammarList)
+    } else if (typeof effectiveGrammarList === 'object') {
+      grammarText = Object.entries(effectiveGrammarList)
         .map(([key, val]: [string, any]) => `  * ${key}: ${val?.description || JSON.stringify(val)}`)
         .join("\n");
     }
@@ -149,43 +137,42 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
-  // 3. ライティングスタイル / 目的（writing-styles.ts）のテキスト化
+  // 3. ライティングスタイル / 目的のテキスト化
   let writingStylesText = "";
-  if (portalData.writingStyles) {
-    if (typeof portalData.writingStyles === 'string') {
-      writingStylesText = portalData.writingStyles;
-    } else if (typeof portalData.writingStyles === 'object') {
-      writingStylesText = JSON.stringify(portalData.writingStyles, null, 2);
+  if (effectiveWritingStyles) {
+    if (typeof effectiveWritingStyles === 'string') {
+      writingStylesText = effectiveWritingStyles;
+    } else if (typeof effectiveWritingStyles === 'object') {
+      writingStylesText = JSON.stringify(effectiveWritingStyles, null, 2);
     }
   } else {
     writingStylesText = "  * Purpose and styles: Evaluative, Persuasive, Imaginative, Informative, Personal / Recount.";
   }
 
-  // 4. 期末筆記試験採点基準（vce-eoy-written-criteria.ts）のテキスト化
-  let eoyCriteriaText = portalData.eoyWrittenCriteria 
-    ? (typeof portalData.eoyWrittenCriteria === 'string' ? portalData.eoyWrittenCriteria : JSON.stringify(portalData.eoyWrittenCriteria, null, 2))
+  // 4. 期末筆記試験採点基準のテキスト化
+  let eoyCriteriaText = effectiveWrittenCriteria 
+    ? (typeof effectiveWrittenCriteria === 'string' ? effectiveWrittenCriteria : JSON.stringify(effectiveWrittenCriteria, null, 2))
     : "  * VCE End-of-Year Written Examination Assessment Criteria (Content, Grammar, Vocabulary, Structure & Spelling).";
 
-  // 5. 2025年度期末筆記試験レポート（vce-eoy-written-report2025.ts）のテキスト化
-  let eoyReport2025Text = portalData.eoyWrittenReport2025 
-    ? (typeof portalData.eoyWrittenReport2025 === 'string' ? portalData.eoyWrittenReport2025 : JSON.stringify(portalData.eoyWrittenReport2025, null, 2))
+  // 5. 期末筆記試験レポートのテキスト化
+  let eoyReport2025Text = effectiveWrittenReport 
+    ? (typeof effectiveWrittenReport === 'string' ? effectiveWrittenReport : JSON.stringify(effectiveWrittenReport, null, 2))
     : "  * 2025 VCE End-of-Year Written Examination Report & Examiner Feedback Insights.";
 
-  // 6. 期末筆記試験仕様・セクション構成（vce-eoy-written-spec.ts）のテキスト化
-  let eoySpecText = portalData.eoyWrittenSpec 
-    ? (typeof portalData.eoyWrittenSpec === 'string' ? portalData.eoyWrittenSpec : JSON.stringify(portalData.eoyWrittenSpec, null, 2))
+  // 6. 期末筆記試験仕様のテキスト化
+  let eoySpecText = effectiveWrittenSpec 
+    ? (typeof effectiveWrittenSpec === 'string' ? effectiveWrittenSpec : JSON.stringify(effectiveWrittenSpec, null, 2))
     : "  * VCE End-of-Year Written Examination Specifications & Section Layouts.";
 
-  // 7. 漢字・語彙カウント
-  const kanjiCount = portalData.kanjiList && Array.isArray(portalData.kanjiList) ? portalData.kanjiList.length : "Standard VCE Core";
-  const vocabCount = portalData.vocabList && Array.isArray(portalData.vocabList) ? portalData.vocabList.length : "VCE Core";
+  // 7. 漢字カウント
+  const kanjiCount = effectiveKanjiList && Array.isArray(effectiveKanjiList) ? effectiveKanjiList.length : "Standard VCE Core";
 
   // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
   let activeSessionContext = "";
-  if (portalData.selectedTextType || essayText) {
+  if (selectedTextType || essayText) {
     activeSessionContext = `
   <current_student_work>
-    - Selected Text Type (Format): ${portalData.selectedTextType || "Not specified yet"}
+    - Selected Text Type (Format): ${selectedTextType || "Not specified yet"}
     - Current Student Essay / Text:
       "${essayText || "No essay provided yet."}"
   </current_student_work>
@@ -213,26 +200,26 @@ ${activeSessionContext}
       * **Text Types** refer strictly to the physical format, layout, and conventions of the writing (e.g., Article, Speech script, Personal Letter, Email, Journal/Diary, Report, Story, Message, Review).
       * **Writing Styles / Kinds of Writing** refer to the purpose or approach of communication (e.g., Persuasive, Evaluative, Imaginative, Informative, Personal).
 
-    - Supported Text Types & Format Guidelines (texttypes.json):
+    - Supported Text Types & Format Guidelines:
 ${textTypesText}
 
-    - Writing Styles & Purposes (writing-styles.ts):
+    - Writing Styles & Purposes:
 ${writingStylesText}
 
     - VCE Grammar Standards:
 ${grammarText}
       * Encourage students to incorporate sophisticated VCE-level grammar structures rather than relying solely on basic expressions.
 
-    - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}, VCE Vocab Items: ${vocabCount}):
+    - Vocabulary & Kanji Standards (Kanji Count: ${kanjiCount}):
       * Advise students on appropriate kanji usage and advanced vocabulary suitable for VCE external written examinations.
 
-    - End-of-Year Written Examination Specifications (vce-eoy-written-spec.ts):
+    - End-of-Year Written Examination Specifications:
 ${eoySpecText}
 
     - End-of-Year Written Examination Assessment Criteria:
 ${eoyCriteriaText}
 
-    - 2025 Examination Report & Examiner Insights (vce-eoy-written-report2025.ts):
+    - Examination Report & Examiner Insights:
 ${eoyReport2025Text}
 
     - Coaching Methodology (Socratic Approach - CRITICAL):
@@ -248,11 +235,10 @@ ${eoyReport2025Text}
 
   // YamatoApiCommon を通して、時間・天気・FAQ・共通ルールを自動統合して返却
   return await YamatoApiCommon(EOY_WRITING_SPECIFIC_CONTEXT, {
-    portalData,
-    faqList: portalData.faqList,
-    timeZone: portalData.timeZone,
-    cityName: portalData.cityName,
     ...baseOptions,
+    faqList: effectiveFaqList,
+    timeZone: options.timeZone,
+    cityName: options.cityName,
   });
 }
 

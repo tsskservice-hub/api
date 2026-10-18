@@ -1,14 +1,14 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（ナレッジ同期認証・未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐・portalData完全排除対応版）
  */
 
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
-import { buildConciergePrompt, defaultPortalContextData } from './concierge';
+import { buildConciergePrompt } from './concierge';
 import { buildGameIgoPrompt } from './game-igo';
 import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general';
-import { buildVceGenkoyoshiPrompt, defaultVcePortalData } from './genkoyoshi-editor-vce';
+import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce';
 import { buildEoyOralDrillPrompt } from './eoy-oral-drill';
 import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
@@ -25,6 +25,9 @@ import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
 
+// 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
+import { getSyncedKnowledge, setSyncedKnowledge } from './sync-knowledge';
+
 // 環境変数の型定義（柔軟なキー名に対応）
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -34,6 +37,7 @@ type Bindings = {
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  SYNC_API_KEY?: string; // 💡 ナレッジ同期用のAPIキー
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -124,7 +128,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Jwt-bearer&assertion=${jwt}`
   });
 
   if (!tokenRes.ok) {
@@ -136,23 +140,43 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// スキーマ配信用エンドポイント
-app.get('/api/schema/:appType', (c) => {
-  const appType = c.req.param('appType');
-  let fields: string[] = [];
+// 💡 yamato-portal 側から教育データ・ナレッジを一括同期するエンドポイント（認証チェック付き）
+app.post('/api/sync-knowledge', async (c) => {
+  // 🔐 認証チェック: Authorizationヘッダーと環境変数 SYNC_API_KEY を検証
+  const authHeader = c.req.header('Authorization');
+  const expectedKey = c.env.SYNC_API_KEY;
 
-  switch (appType) {
-    case 'genkoyoshi-editor-vce':
-      fields = Object.keys(defaultVcePortalData);
-      break;
-    case 'concierge':
-      fields = Object.keys(defaultPortalContextData);
-      break;
-    default:
-      fields = [];
-      break;
+  if (expectedKey && authHeader !== `Bearer ${expectedKey}`) {
+    console.warn("⚠️ Unauthorized sync attempt detected.");
+    return c.json({ success: false, error: 'Unauthorized: Invalid or missing API key' }, 401);
   }
 
+  try {
+    const body = await c.req.json();
+    
+    // sync-knowledge.ts のストアにデータを保存
+    setSyncedKnowledge({
+      faqList: body.faqList || [],
+      pricePlans: body.pricePlans || {},
+      kanjiList: body.kanjiList || [],
+      vceCriteria: body.vceCriteria || {},
+    });
+
+    return c.json({ 
+      success: true, 
+      message: "Knowledge base synchronized successfully.",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error("❌ Failed to sync knowledge:", err.message);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// スキーマ配信用エンドポイント（portalData廃止に伴い最小限のフィールド定義へ簡素化）
+app.get('/api/schema/:appType', (c) => {
+  const appType = c.req.param('appType');
+  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace'];
   return c.json({ appType, fields });
 });
 
@@ -163,7 +187,7 @@ app.get('/api/ecosystem-metadata', (c) => {
     apiCommon: {
       fileName: "YamatoApiCommon.tsx",
       layer: "窓口・外装",
-      role: "共通プロンプト構造や portalData などの共通オプションを受け渡す基盤",
+      role: "共通プロンプト構造や共通オプションを受け渡す基盤",
     },
     template: {
       fileName: "a-template.ts",
@@ -199,8 +223,6 @@ app.post('/chat', async (c) => {
       learningPace?: string;
       userNickname?: string;
       appType?: string;
-      portalData?: any;
-      faqList?: Array<any>;
       userId?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
@@ -208,7 +230,13 @@ app.post('/chat', async (c) => {
       isMockFull?: boolean;
       isMockSection?: "1" | "2";
       isVoiceMode?: "drill" | "elaborate";
-  }>();
+      pace?: string;
+      selectedTextType?: string;
+      studentEssay?: string;
+      exactCharacterCount?: number;
+      timeZone?: string;
+      cityName?: string;
+    }>();
 
     // 💡 ユーザーIDが未指定の場合はテスト用ゲストIDを自動割り当て
     const effectiveUserId = body.userId || "test-guest-user";
@@ -285,20 +313,22 @@ app.post('/chat', async (c) => {
     // 3. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 4. システム指示の動的構築
+    // 4. システム指示の動的構築（💡 同期された知識データ / syncedKnowledge をベースに構築）
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
-    const enrichedPortalData = {
-      ...(body.portalData || {}),
-      faqList: body.portalData?.faqList || body.faqList || []
-    };
+    const syncedKnowledge = getSyncedKnowledge();
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
-      portalData: enrichedPortalData,
-      faqList: enrichedPortalData.faqList,
+      faqList: syncedKnowledge.faqList || [],
       currentTurn: history.length + 1,
+      pace: body.learningPace || body.pace,
+      selectedTextType: body.selectedTextType,
+      studentEssay: body.studentEssay,
+      exactCharacterCount: body.exactCharacterCount,
+      timeZone: body.timeZone,
+      cityName: body.cityName,
     };
 
     switch (appType) {

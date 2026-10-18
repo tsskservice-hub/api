@@ -1,21 +1,27 @@
 /**
  * @file oral-exam-questions.ts
- * @description 口頭試験問題ジェネレーターヤマト専用プロンプト生成関数（YamatoApiCommon完全連動版）
+ * @description 口頭試験問題ジェネレーターヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ対応版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { getSyncedKnowledge } from "./sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * 口頭試験問題ジェネレーター固有のオプション定義
+ * 口頭試験問題ジェネレーター固有のオプション定義（portalDataを排除）
  */
 export interface OralExamQuestionsPromptOptions extends YamatoApiCommonOptions {
-  // 独自のオプションがあればここに定義
+  timeZone?: string;
+  cityName?: string;
 }
 
 /**
  * 口頭試験問題ジェネレーター固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildOralExamQuestionsPrompt(options: OralExamQuestionsPromptOptions = {}): Promise<string> {
-  const { portalData = {}, ...baseOptions } = options;
+  const { ...baseOptions } = options;
+
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
+  const syncedKnowledge = getSyncedKnowledge();
+  const effectiveFaqList = syncedKnowledge.faqList || [];
 
   // 口頭試験問題ジェネレーター固有の設定
   const QUESTIONS_SPECIFIC_CONTEXT = `
@@ -30,13 +36,12 @@ export async function buildOralExamQuestionsPrompt(options: OralExamQuestionsPro
 </system_context>
   `.trim();
 
-  // YamatoApiCommon に流し込む
+  // YamatoApiCommon に流し込む（portalDataを排除し、同期されたfaqListを使用）
   return await YamatoApiCommon(QUESTIONS_SPECIFIC_CONTEXT, {
-    portalData,
-    faqList: portalData?.faqList,
-    timeZone: portalData?.timeZone,
-    cityName: portalData?.cityName,
     ...baseOptions,
+    faqList: effectiveFaqList,
+    timeZone: options.timeZone,
+    cityName: options.cityName,
   });
 }
 

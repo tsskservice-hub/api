@@ -1,6 +1,6 @@
 /**
  * @file YamatoApiCommon.tsx
- * @description バックエンド専用の共通プロンプトレイアウト（PageLayout思想の統合版）
+ * @description バックエンド専用の共通プロンプトレイアウト（PageLayout思想の統合版・portalData完全排除対応）
  * 
  * ==============================================================================
  * 【他のファイルとの関係性について】
@@ -36,18 +36,18 @@ export interface YamatoApiCommonMetaType {
  * 構造化メタデータ（コード近接配置）
  */
 export const YAMATO_API_COMMON_META: YamatoApiCommonMetaType = {
-  version: "1.0.0",
+  version: "2.0.0",
   moduleName: "YamatoApiCommon",
-  role: "バックエンド共通プロンプトレイインジェクションおよびオプション制御レイヤー",
+  role: "バックエンド共通プロンプトレイインジェクションおよびオプション制御レイヤー（portalData完全排除版）",
   architectureNotes: [
-    "FoundationLayout をラップし、バックエンド固有のオプション（portalData等）を統合する",
+    "FoundationLayout をラップし、バックエンド共通のオプションや同期済みナレッジを統合する",
     "単一責任の原則に基づき、LLMリクエスト前の共通前処理およびパイプライン構築を担う",
     "フロントエンドのテスト画面（test-yamato.tsx）へエコシステム仕様を動的同期する"
   ],
   pipelineRules: [
     {
       ruleName: "Options Inheritance",
-      description: "FoundationLayoutOptions を継承し、すべてのヤマト固有オプションとポータルデータを安全に型安全で伝播させる"
+      description: "FoundationLayoutOptions を継承し、すべてのヤマト固有オプションを安全かつ型安全に伝播させる"
     },
     {
       ruleName: "Prompt Assembly",
@@ -65,7 +65,7 @@ export const YAMATO_API_COMMON_META: YamatoApiCommonMetaType = {
       paramName: "options",
       type: "YamatoApiCommonOptions",
       required: false,
-      description: "FoundationLayoutOptions およびポータル連携用 portalData を含む拡張オプション"
+      description: "FoundationLayoutOptions およびAPI同期ナレッジを受け渡す拡張オプション"
     }
   ]
 };
@@ -74,7 +74,7 @@ export const YAMATO_API_COMMON_META: YamatoApiCommonMetaType = {
  * 各ヤマトの固有プロンプト生成関数に渡される共通オプションの型定義
  */
 export interface YamatoApiCommonOptions extends FoundationLayoutOptions {
-  portalData?: any; // portalData の定義
+  // portalData は API側の syncedKnowledge に完全に移行したため削除されました
 }
 
 /**
