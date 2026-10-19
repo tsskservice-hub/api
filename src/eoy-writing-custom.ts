@@ -1,40 +1,9 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（文字起こし・文字数表示限定版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（完全制御・限定出力版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
-
-/**
- * ★ 画像が添付された際のルール：指定された問題、文字起こし、文字数のみを出力する
- */
-function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
-  if (!hasFiles) return "";
-
-  const hasAssignedQuestion = Boolean(assignedQuestion && assignedQuestion.trim() !== "");
-
-  return `
-<CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
-  - TRIGGER CONDITION: An image file of a handwritten response is uploaded by the student.
-  - ABSOLUTE RULE: When an image is attached, you MUST output ONLY the following three lines and absolutely nothing else. Do not add greetings, advice, or any other text.
-
-  [Assigned Question] : "${assignedQuestion || "None selected"}"
-  [Transcribed Text] : <Insert direct transcription of the student's handwritten Japanese text from the image here>
-  [Character Count] : <Insert the exact character count of the transcribed text, e.g., 25 characters>
-</CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
-  `.trim();
-}
-
-/**
- * ★ ライティング特化のペース別インストラクション生成（※現在は一時的にコメントアウトして無効化）
- */
-function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
-  /*
-  const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
-  ...
-  */
-  return ""; // 後の部分の出力を完全に停止するため空文字を返す
-}
+import { getSyncedKnowledge } from "./api-sync-knowledge";
 
 export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   pace?: string;
@@ -49,51 +18,44 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
 
 export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromptOptions = {}): Promise<string> {
   const { 
-    pace = "", 
     exactCharacterCount = 0, 
-    selectedTextType = "", 
     studentEssay = "", 
     hasFiles = false,
     assignedQuestion = "",
     ...baseOptions 
   } = options;
 
-  const syncedKnowledge = getSyncedKnowledge() as any;
-  const effectiveFaqList = syncedKnowledge?.faqList || [];
-
   const essayText = studentEssay;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : essayText.length;
 
-  const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
+  // 画像や答案が渡された場合の処理（限定出力の強制）
+  let extractionInstruction = "";
+  if (hasFiles || essayText) {
+    extractionInstruction = `
+<STRICT_EXTRACTION_MODE>
+- ABSOLUTE OVERRIDE: You are NOT acting as a tutor or coach right now. Do NOT provide any feedback, corrections, grammar explanations, or advice.
+- You MUST output ONLY the following three lines and nothing else:
 
-  let activeSessionContext = "";
-  if (selectedTextType || essayText || assignedQuestion) {
-    activeSessionContext = `
-  <current_student_work>
-    - Assigned Question (Custom Prompt): "${assignedQuestion || "Not specified yet"}"
-    - Selected Text Type (Format): ${selectedTextType || "Not specified yet"}
-    - Current Student Essay / Text:
-      "${essayText || "No essay provided yet."}"
-  </current_student_work>
-`;
+[Assigned Question] : "${assignedQuestion || "None selected"}"
+[Transcribed Text] : "${essayText || "No text detected from image."}"
+[Character Count] : ${charCount} characters
+</STRICT_EXTRACTION_MODE>
+    `.trim();
   }
 
-  const EOY_WRITING_CUSTOM_SPECIFIC_CONTEXT = `
+  const STRICT_LIMITED_CONTEXT = `
 <system_context>
-  ${visionHandlingText}
+  ${extractionInstruction}
 
   <identity>
-    - Tutor's Name: "EOY Writing Custom Practice Yamato" (カスタムEOYライティング練習ヤマト).
-    - Role: An expert VCE Japanese examination writing coach.
+    - Role: Data extraction utility only. Do not provide tutoring feedback.
   </identity>
-
-  ${activeSessionContext}
 </system_context>
   `.trim();
 
-  return await YamatoApiCommon(EOY_WRITING_CUSTOM_SPECIFIC_CONTEXT, {
+  return await YamatoApiCommon(STRICT_LIMITED_CONTEXT, {
     ...baseOptions,
-    faqList: effectiveFaqList,
+    faqList: [],
     timeZone: options.timeZone,
     cityName: options.cityName,
   });
