@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・ assignedQuestion 確実連動版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・ assignedQuestion 確実連動・eoy-writing-custom 統合版）
  */
 
 import { Hono } from 'hono';
@@ -15,8 +15,8 @@ import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
-// 💡 新しく作成したカスタムライティング用頭脳のインポート（存在しない場合のビルドエラーを防ぐため必要に応じて有効化してください）
-// import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
+// 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポートを有効化
+import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 
 // 💡 画像生成サービスのインポート
 import { generateVisualAid } from './imagen-service';
@@ -354,16 +354,8 @@ app.post('/chat', async (c) => {
         break;
       case "eoy-writing-custom":
       case "custom":
-        // 💡 カスタム問題専用の頭脳（eoy-writing-custom.ts）がある場合はそこでビルドし、ない場合もassignedQuestionを確実に組み込む
-        /*
-        try {
-          systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
-          break;
-        } catch (e) {
-          // フォールバック
-        }
-        */
-        systemInstructionText = `${basePromptOverride}\n\n[CRITICAL ASSESSMENT INSTRUCTION: CUSTOM QUESTION WORKSPACE]\n- Target Assignment / Question to Evaluate Against: "${body.assignedQuestion || "Custom provided prompt"}"\n- Student Nickname: ${body.userNickname || "my friend"}\n- Rule: You MUST rigorously evaluate the student's submission against the exact requirements and topic of the Target Assignment shown above. Provide constructive, Socratic feedback without giving direct model answers.`;
+        // 💡 新しく作成した eoy-writing-custom.ts の関数を確実に呼び出すように修正！
+        systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
         break;
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
