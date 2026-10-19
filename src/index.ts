@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（ナレッジ同期認証・未ログインガード緩和・全9ペルソナ・画像生成・メタデータ配信・クレジット動的コスト & スマート分岐・画像ビジョン解析対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（安全なプロンプトフォールバック・全ペルソナ・画像生成・クレジット動的コスト & スマート分岐・画像ビジョン解析対応版）
  */
 
 import { Hono } from 'hono';
@@ -38,6 +38,7 @@ type Bindings = {
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SYNC_API_KEY?: string; // 💡 ナレッジ同期用のAPIキー
+  AIYAMATO_SYSTEM_PROMPT?: string; // 💡 安全なオプショナル定義
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -142,7 +143,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
 
 // 💡 yamato-portal 側から教育データ・ナレッジを一括同期するエンドポイント（認証チェック付き）
 app.post('/api/sync-knowledge', async (c) => {
-  // 🔐 認証チェック: Authorizationヘッダーと環境変数 SYNC_API_KEY を検証
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
 
@@ -153,8 +153,6 @@ app.post('/api/sync-knowledge', async (c) => {
 
   try {
     const body = await c.req.json<any>();
-    
-    // api-sync-knowledge.ts のストアに受け取ったデータを丸ごと保存
     setSyncedKnowledge(body);
 
     return c.json({ 
@@ -215,13 +213,14 @@ app.post('/chat', async (c) => {
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
       assignedQuestion?: string;
+      questionImageBase64?: string; // 💡 問題の写真対応
       learningPace?: string;
       userNickname?: string;
       appType?: string;
       userId?: string;
       visualPrompt?: string;
       requestVisualAid?: boolean;
-      imageBase64?: string; // 👈 フロントエンドから送られてくる画像データ
+      imageBase64?: string; 
       featureKey?: FeatureKey;
       isMockFull?: boolean;
       isMockSection?: "1" | "2";
@@ -232,27 +231,27 @@ app.post('/chat', async (c) => {
       exactCharacterCount?: number;
       timeZone?: string;
       cityName?: string;
+      systemPrompt?: string; // 💡 フロントからのカスタムプロンプト受け取り対応
     }>();
 
-    // 💡 ユーザーIDが未指定の場合はテスト用ゲストIDを自動割り当て
     const effectiveUserId = body.userId || "test-guest-user";
 
     console.log("📥 Received /chat request:", {
       userId: effectiveUserId,
       appType: body.appType,
       messageLength: body.message?.length,
-      hasImage: Boolean(body.imageBase64),
+      hasAnswerImage: Boolean(body.imageBase64),
+      hasQuestionImage: Boolean(body.questionImageBase64),
       assignedQuestion: body.assignedQuestion
     });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
 
-    if (!userMessage && !body.imageBase64) {
+    if (!userMessage && !body.imageBase64 && !body.questionImageBase64) {
       return c.json({ error: 'Message or image is required' }, 400);
     }
 
-    // 環境変数のフォールバック取得
     const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const projectId = c.env.VERTEX_AI_PROJECT_ID;
     const region = c.env.VERTEX_AI_REGION || "us-central1";
@@ -262,7 +261,6 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 1. リクエスト内容から必要なコストと featureKey をスマートに動的判定
     const requiredCredits = determineRequiredCreditsFromPayload(body);
     const featureKey: FeatureKey = requiredCredits >= 10 ? 'mockFull' 
       : requiredCredits === 6 ? 'mockSection1' 
@@ -273,18 +271,14 @@ app.post('/chat', async (c) => {
 
     let supabaseAdmin: any = null;
 
-    // 💡 2. サーバーサイドでのクレジット残高スマート検証
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
       if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
         const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-        console.log("💳 Credit check result:", creditCheck);
-
         const { hasEnough, currentCredits } = creditCheck;
 
         if (!hasEnough) {
           if (currentCredits <= 0) {
-            console.warn(`⚠️ Zero credits for user ${effectiveUserId}`);
             return c.json({
               error: "ZERO_CREDITS",
               message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
@@ -294,7 +288,6 @@ app.post('/chat', async (c) => {
             }, 402);
           }
 
-          console.warn(`⚠️ Partial shortage for user ${effectiveUserId}: current=${currentCredits}, required=${requiredCredits}`);
           return c.json({
             error: "PARTIAL_SHORTAGE",
             message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
@@ -305,17 +298,17 @@ app.post('/chat', async (c) => {
         }
       }
     } catch (dbErr: any) {
-      console.warn("⚠️ Database check skipped or failed (running in guest/test mode):", dbErr.message);
+      console.warn("⚠️ Database check skipped or failed:", dbErr.message);
     }
 
-    // 3. サービスアカウントからアクセストークンを取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 4. システム指示の動的構築
+    // 💡 システム指示の構築（AIYAMATO_SYSTEM_PROMPTが未定義でもエラーにならない安全なフォールバック）
     let systemInstructionText = "";
     const appType = body.appType || "general";
-    
     const syncedKnowledge = getSyncedKnowledge();
+
+    const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
@@ -325,8 +318,8 @@ app.post('/chat', async (c) => {
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
-      hasFiles: Boolean(body.imageBase64),           // 👈 画像の有無を確実に渡す
-      assignedQuestion: body.assignedQuestion || "", // 👈 ダッシュボードで選択中の設問情報を確実に渡す
+      hasFiles: Boolean(body.imageBase64 || body.questionImageBase64),
+      assignedQuestion: body.assignedQuestion || "",
       timeZone: body.timeZone,
       cityName: body.cityName,
     };
@@ -356,11 +349,15 @@ app.post('/chat', async (c) => {
       case "eoy-writing":
         systemInstructionText = await buildEoyWritingPrompt(promptOptions);
         break;
+      case "eoy-writing-custom":
+      case "custom":
+        systemInstructionText = `${basePromptOverride}\n\n[Context]\nActive Question / Prompt: ${body.assignedQuestion || "Custom question"}\nStudent Nickname: ${body.userNickname || "Student"}`;
+        break;
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
       default:
-        systemInstructionText = buildAiYamatoContext({
+        systemInstructionText = basePromptOverride || buildAiYamatoContext({
           assignedQuestion: body.assignedQuestion || "",
           learningPace: body.learningPace || "normal",
           userNickname: body.userNickname || "生徒さん",
@@ -370,20 +367,30 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 5. Vertex AI 用の会話履歴データを構築（✨ 画像（imageBase64）マルチモーダル対応）
-    const userParts: any[] = [{ text: userMessage || "Please check this handwritten answer image and give me feedback." }];
+    // 💡 マルチモーダル対応（問題の写真と答案の写真の両方に対応）
+    const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
-    if (body.imageBase64) {
-      const matches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
-      if (matches && matches.length === 3) {
-        const mimeType = matches[1];
-        const base64Data = matches[2];
-        
-        // Vertex AI が要求する inline_data 形式のパーツを追加してモデルに画像を見せる
+    // 1. 問題の写真がある場合
+    if (body.questionImageBase64) {
+      const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+      if (qMatches && qMatches.length === 3) {
         userParts.push({
           inline_data: {
-            mime_type: mimeType,
-            data: base64Data
+            mime_type: qMatches[1],
+            data: qMatches[2]
+          }
+        });
+      }
+    }
+
+    // 2. 答案の写真がある場合
+    if (body.imageBase64) {
+      const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+      if (aMatches && aMatches.length === 3) {
+        userParts.push({
+          inline_data: {
+            mime_type: aMatches[1],
+            data: aMatches[2]
           }
         });
       }
@@ -400,7 +407,6 @@ app.post('/chat', async (c) => {
       }
     ];
 
-    // 6. Vertex AI のエンドポイントへリクエスト送信
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
 
     const vertexRes = await fetch(vertexUrl, {
@@ -426,7 +432,6 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 7. 画像生成の実行（必要な場合）
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
     const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt || requiredCredits === 4);
@@ -450,14 +455,8 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // 💡 8. クレジット減算処理
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
-      const deductResult = await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-      console.log("💳 Credit deduction result (post-success):", deductResult);
-      
-      if (!deductResult.success) {
-        console.warn("⚠️ Credit deduction failed post-generation:", deductResult.error);
-      }
+      await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
     }
 
     return c.json({ 
