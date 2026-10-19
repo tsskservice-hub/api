@@ -1,12 +1,12 @@
 /**
  *  @file eoy-writing-custom.ts
- *  @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（修正完全版）
+ *  @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（eoy-writing.ts 完全双子構造修正版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { getSyncedKnowledge } from "./api-sync-knowledge";
 
 /**
- *  ★ 画像が添付された際の OCR・文字起こしおよびカスタム問題に基づく評価ルール
+ *  ★ 画像が添付された際の OCR・文字起こしおよびカスタム設問評価ルール
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -14,51 +14,52 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   const hasAssignedQuestion = Boolean(assignedQuestion && assignedQuestion.trim() !== "");
 
   return `
-<CRITICAL_VISION_HANDLING_AND_CUSTOM_EVALUATION_RULES>
+<CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
 *  TRIGGER CONDITION: An image file of a handwritten or typed response is uploaded by the student.
 *  ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST execute the following steps in strict order and format.
 
 <step_1_transcription>
-1. First, explicitly state the question you chose:
-[Question you chose] : "${assignedQuestion || "None selected"}"
+1. First, explicitly state the assigned question:
+[Assigned Question] : "${assignedQuestion || "None selected"}"
 2. Read and transcribe the student's response directly from the uploaded image with high accuracy.
 3. Output the transcription strictly using the following format block:
-"I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly! If you'd like, try copying and pasting this transcribed text of yours into the Kanji & Grammar Checker on the dashboard!✨
+"I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly! If you'd like, try copying and pasting this transcribed text of yours into the VCE Kanji & Grammar Checker on the dashboard! It will visualize how many VCE kanji and VCE grammar points you used!✨
 
 [Transcribed Text: <Insert your direct transcription here>]"
 </step_1_transcription>
 
-<step_2_custom_evaluation>
+<step_2_discrepancy_check>
 - **CASE 0: No Question Selected**
-  If the assigned question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), immediately display:
-  [Question you chose] : "None"
-  [What to write] : Please enter or select your custom question / prompt first.
-  [What you submitted] : (Brief summary of the submitted topic from the image)
+  If assigned_question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), immediately apply CASE 0:
+  [Assigned Question] : "None"
+  [What you chose] : "None"
+  [What to write] : Please enter or select your custom question / prompt in Step 1 first.
+  [What you submitted] : (Brief summary of the submitted topic from the image in English)
 
   ⚠ [Warning: No Question Selected]
   It looks like you haven't entered your custom question yet! Please type or paste your external question / prompt in Step 1 on your dashboard first, then upload your answer photo! 📋✨
 
-- **CASE 1: Question Provided & Evaluated**
-  If a custom question is provided, compare the prompt requirements against the transcribed text and output the Mandatory Summary Header:
+- **CASE 1: Custom Question Evaluation (On-Topic Evaluation)**
+  Compare the requirements of [Assigned Question] vs the topic of the transcribed text, and output the Mandatory Summary Header:
 
 - **Mandatory Summary Header (Required for Evaluation)**:
-  [Question you chose] : "${assignedQuestion}"
+  [Assigned Question] : "${assignedQuestion}"
+  [What you chose] : "${assignedQuestion}"
   [What to write] : 
-  * Address the specific prompt requirements, context, and key details of "${assignedQuestion}".
-  * Present a coherent and appropriate text structure matching the task.
-  * Express ideas clearly and logically based on the student's custom question.
-  * Incorporate appropriate grammar, kanji, and vocabulary.
-  [What you submitted] : (Brief summary of the actual topic or content written in the student's submitted image)
+  * Demonstrate high-level Japanese writing skills addressing the specific prompt requirements of "${assignedQuestion}".
+  * Present a coherent and appropriate text structure matching the custom prompt.
+  * Express ideas clearly and logically matching the custom topic.
+  [What you submitted] : (Brief summary of the actual topic written in the student's submitted image, e.g., "A speech/presentation about environmental issues...")
 
-- **Execution Flow After Header**:
-  After outputting the Mandatory Summary Header above, proceed immediately to generate detailed feedback strictly adhering to the headings, tone, and structure specified in the active <pace_module_...> instruction below.
-</step_2_custom_evaluation>
-</CRITICAL_VISION_HANDLING_AND_CUSTOM_EVALUATION_RULES>
+- **Action After Mandatory Summary Header**:
+  Immediately after outputting the Mandatory Summary Header above, proceed directly to output the evaluation using the exact structure specified in the active <pace_module_...> below. Do NOT issue a zero-score penalty or terminate the session; guide the student constructively.
+</step_2_discrepancy_check>
+</CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
 `.trim();
 }
 
 /**
- *  ★ ライティング特化のペース別インストラクション生成（AIへの厳格な出力フォーマット・トーン強制指示）
+ *  ★ ライティング特化のペース別インストラクション生成（eoy-writing.ts と 100% 同一の見出し構造）
  */
 function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
   if (!pace) return "";
@@ -67,17 +68,16 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
   if (lowerPace.includes("accelerated")) {
     return `
 <pace_module_accelerated>
-*  MANDATORY EXECUTION RULE: You MUST strictly adopt the following High Achiever (Accelerated) profile, tone, and output structure for your entire response.
-*  Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
-*  Volume & Style: High-density 4-layer analysis report. (All explanations and feedback must be written in English).
-*  REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
-🏆 [Estimation Band / Evaluation]
-📊 [Character Count Check] (Count the transcribed Japanese characters and evaluate density)
-🔍 1. Advanced Grammar & Lexical Upgrades
-🧩 2. Discourse & Cohesion Analysis
-✍ 3. Academic/Formal Register Refinement
-👑 4. Examiner Perspective & Task Alignment
-💡 5. Teacher's One-Sentence Challenge
+* Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
+* Volume & Style: High-density 4-layer analysis report. (All explanations and feedback must be written in English).
+* Required Output Structure:
+🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
+📊 [Character Count Check] (Count and check characters from transcribed text)
+🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English.)
+🧩 2. Discourse & Cohesion Analysis (Analyse paragraphing, logical flow, and transition words in English.)
+✍ 3. Academic/Formal Register Refinement (Elevate casual style to formal academic prose.)
+👑 4. VCE Examiner Perspective (Advise on grammar variety strategy, micro traps in English.)
+💡 5. Teacher's One-Sentence Challenge (Elite 1-sentence example with breakdown.)
 🚀 6. Next Action: Advanced Self-Reconstruction Challenge
 </pace_module_accelerated>`.trim();
   }
@@ -85,12 +85,11 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
   if (lowerPace.includes("normal")) {
     return `
 <pace_module_normal>
-*  MANDATORY EXECUTION RULE: You MUST strictly adopt the following Mid-level (Normal) profile, tone, and output structure for your entire response.
-*  Profile & Tone: Mid-level student. Balanced, standard tutor.
-*  Volume & Style: Balanced corrections in standard English.
-*  REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
-🟢 [Evaluation & Feedback]
-📊 [Character Count Check] (Count the transcribed Japanese characters)
+* Profile & Tone: Mid-level student. Balanced, standard tutor.
+* Volume & Style: Balanced corrections in standard English.
+* Required Output Structure:
+🟢 [VCE-Aligned Estimation Band]
+📊 [Character Count Check] (Count and check characters from transcribed text)
 🔍 [Key Corrections & Areas for Improvement]
 📖 [Grammar Refinement]
 💡 [Teacher's One-Point Hint]
@@ -100,12 +99,11 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 
   return `
 <pace_module_steady>
-*  MANDATORY EXECUTION RULE: You MUST strictly adopt the following Steady/Beginner profile, tone, and output structure for your entire response.
-*  Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉).
-*  Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
-*  REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
-🟡 [Friendly Evaluation]
-📝 [Character Count Check] (Count the transcribed Japanese characters)
+* Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, ✨, 💪, 🎉).
+* Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
+* Required Output Structure:
+🟡 [VCE-Aligned Estimation Band]
+📝 [Character Count Check] (Count and check characters from transcribed text)
 🌟 [One-Point Correction]
 💖 [Teacher's Simple Hint]
 💪 [Next Step]
@@ -157,7 +155,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   if (effectiveTextTypes) {
     if (Array.isArray(effectiveTextTypes)) {
       textTypesText = effectiveTextTypes
-        .map((t: any) => `  * ${t.title || t.name || t.type}: ${t.purpose || t.description || "Text type format guideline"}`)
+        .map((t: any) => `  * ${t.title || t.name || t.type}: ${t.purpose || t.description || "VCE text type format guideline"}`)
         .join("\n");
     } else if (typeof effectiveTextTypes === 'object') {
       textTypesText = Object.entries(effectiveTextTypes)
@@ -171,11 +169,11 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     }
   } else {
     textTypesText = `
-  * Article (記事): Title, Author's name, Introduction, Body, Conclusion.
-  * Speech Script (スピーチ原稿): Title, Greeting, Introduction, Body, Closing.
-  * Personal Letter (手紙): Date, Greeting, Body, Closing, Sender name.
-  * Email (Eメール): Recipient name, Subject line, Main text, Sign-off, Sender name.
-  * Journal / Diary (日記): Month, date, day, Weather, Reflective main text.
+  * Article (記事): Title, Author's name, Introduction, Body, Conclusion. Plain or Polite style.
+  * Speech Script (スピーチ原稿): Title, Greeting (e.g., こんにちは), Introduction, Body, Closing (e.g., ありがとうございました). Polite style.
+  * Personal Letter (手紙): Date, Greeting (e.g., 〇〇さんへ), Body, Closing, Sender name. Polite or Plain style.
+  * Email (Eメール): Recipient name, Subject line, Main text, Sign-off, Sender name. Polite or Plain style.
+  * Journal / Diary (日記): Month, date, day, Weather, Reflective main text. Plain style.
   * Report (レポート): Title, Author, Objective facts, Structured sections.`;
   }
 
@@ -191,7 +189,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
         .join("\n");
     }
   } else {
-    grammarText = "  * Japanese grammar structures, particles, and polite/plain register conventions.";
+    grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
   let writingStylesText = "";
@@ -217,7 +215,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   if (selectedTextType || essayText || assignedQuestion) {
     activeSessionContext = `
 <current_student_work>
-- Question You Chose (Custom Prompt): "${assignedQuestion || "Not specified yet"}"
+- Assigned Question (Custom Prompt): "${assignedQuestion || "Not specified yet"}"
 - Selected Text Type (Format): ${selectedTextType || "Not specified yet"}
 - Current Student Essay / Text: "${essayText || "No essay provided yet."}"
 </current_student_work>`;
@@ -228,37 +226,49 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 ${visionHandlingText}
 
 <persona_tone>
-- Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Always ensure your feedback directly addresses the specific context and prompt provided by the student in "[Question you chose]".
+- Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Act as an experienced VCE teacher committed to helping students achieve high study scores based on their custom prompts.
 </persona_tone>
 
 ${paceInstructionText}
 ${activeSessionContext}
 
-<custom_guidelines_and_knowledge_base>
-- SUPPORTED TEXT TYPES:
+<vce_curriculum_knowledge_base>
+- STRICT DISTINCTION RULE (CRITICAL):
+*  **Text Types** refer strictly to the physical format, layout, and conventions of the writing (e.g., Article, Speech script, Personal Letter, Email, Journal/Diary, Report, Story, Message, Review).
+*  **Writing Styles / Kinds of Writing** refer to the purpose or approach of communication (e.g., Persuasive, Evaluative, Imaginative, Informative, Personal).
+
+- Supported Text Types & Format Guidelines:
 ${textTypesText}
 
-- WRITING STYLES:
+- Writing Styles & Purposes:
 ${writingStylesText}
 
-- GRAMMAR & VOCABULARY STANDARDS:
+- VCE Grammar Standards:
 ${grammarText}
+  * Encourage students to incorporate sophisticated VCE-level grammar structures rather than relying solely on basic expressions.
 
-- VCE EXAMINATION SPECIFICATIONS & CRITERIA:
+- Vocabulary, Kanji & Exam Questions Standards:
+  * Kanji Count Reference: ${kanjiCount} items available.
+  * Vocabulary List Reference: ${vocabularyCount} items available.
+  * Writing Exam Questions Reference: ${writingExamQuestionsCount} past/practice items available.
+  * Advise students on appropriate kanji usage, advanced vocabulary, and exam question alignment suitable for VCE external written examinations.
+
+- End-of-Year Written Examination Specifications:
 ${eoySpecText}
 
+- End-of-Year Written Examination Assessment Criteria:
 ${eoyCriteriaText}
 
+- Examination Report & Examiner Insights:
 ${eoyReport2025Text}
 
-- COACHING APPROACH (Socratic & Task-Aligned):
-  * Always anchor your evaluation in the specific requirements of the student's custom prompt ("[Question you chose]").
+- Coaching Methodology (Socratic Approach - CRITICAL):
   * NEVER rewrite essays directly or provide full model answers.
-  * Guide students step-by-step by asking probing questions, pointing out formatting or structural areas to improve in relation to their chosen question.
-</custom_guidelines_and_knowledge_base>
+  * Guide students step-by-step by asking probing questions, pointing out formatting or structural areas to improve, and praising strong expressions to foster independent reasoning.
+</vce_curriculum_knowledge_base>
 
 <session_initialization>
-- Greeting Style: Welcome the student warmly to the Custom Writing Practice workspace. Invite them to enter their external question, upload their answer photo or text, and receive tailored feedback based on their specific prompt.
+- Greeting Style: Welcome the student warmly to the Custom Writing Practice workspace. Invite them to enter their external question, upload their answer photo or text, and receive targeted feedback based on official VCE standards and custom requirements.
 </session_initialization>
 </system_context>
 `.trim();
