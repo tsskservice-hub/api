@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（安全なプロンプトフォールバック・全ペルソナ・画像生成・クレジット動的コスト & スマート分岐・画像ビジョン解析対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・ assignedQuestion 確実連動版）
  */
 
 import { Hono } from 'hono';
@@ -14,6 +14,9 @@ import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
+
+// 💡 新しく作成したカスタムライティング用頭脳のインポート（存在しない場合のビルドエラーを防ぐため必要に応じて有効化してください）
+// import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 
 // 💡 画像生成サービスのインポート
 import { generateVisualAid } from './imagen-service';
@@ -169,7 +172,7 @@ app.post('/api/sync-knowledge', async (c) => {
 // スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
-  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace'];
+  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion'];
   return c.json({ appType, fields });
 });
 
@@ -205,7 +208,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（画像ビジョン解析対応版）
+// チャット送信用エンドポイント: POST /chat（カスタム問題 assignedQuestion 確実反映版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -303,7 +306,7 @@ app.post('/chat', async (c) => {
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 💡 システム指示の構築（AIYAMATO_SYSTEM_PROMPTが未定義でもエラーにならない安全なフォールバック）
+    // 💡 システム指示の構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     const syncedKnowledge = getSyncedKnowledge();
@@ -319,7 +322,7 @@ app.post('/chat', async (c) => {
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
       hasFiles: Boolean(body.imageBase64 || body.questionImageBase64),
-      assignedQuestion: body.assignedQuestion || "",
+      assignedQuestion: body.assignedQuestion || "", // 💡 カスタム問題・選択された問題テキストを確実に渡す
       timeZone: body.timeZone,
       cityName: body.cityName,
     };
@@ -351,7 +354,16 @@ app.post('/chat', async (c) => {
         break;
       case "eoy-writing-custom":
       case "custom":
-        systemInstructionText = `${basePromptOverride}\n\n[Context]\nActive Question / Prompt: ${body.assignedQuestion || "Custom question"}\nStudent Nickname: ${body.userNickname || "Student"}`;
+        // 💡 カスタム問題専用の頭脳（eoy-writing-custom.ts）がある場合はそこでビルドし、ない場合もassignedQuestionを確実に組み込む
+        /*
+        try {
+          systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
+          break;
+        } catch (e) {
+          // フォールバック
+        }
+        */
+        systemInstructionText = `${basePromptOverride}\n\n[CRITICAL ASSESSMENT INSTRUCTION: CUSTOM QUESTION WORKSPACE]\n- Target Assignment / Question to Evaluate Against: "${body.assignedQuestion || "Custom provided prompt"}"\n- Student Nickname: ${body.userNickname || "my friend"}\n- Rule: You MUST rigorously evaluate the student's submission against the exact requirements and topic of the Target Assignment shown above. Provide constructive, Socratic feedback without giving direct model answers.`;
         break;
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
