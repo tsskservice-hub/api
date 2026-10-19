@@ -3,7 +3,7 @@
  * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（ペース別出力完全制御版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge";
+import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
  * ★ 画像が添付された際の OCR・文字起こしおよび持参問題に基づく評価ルール（強制終了なし）
