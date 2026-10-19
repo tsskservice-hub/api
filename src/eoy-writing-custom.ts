@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（最新修正版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
@@ -48,7 +48,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
       * Present a coherent and appropriate text structure matching the task.
       * Express ideas clearly and logically based on the student's custom question.
       * Incorporate appropriate grammar, kanji, and vocabulary.
-      [What you submitted] : (Brief summary of the actual topic or content written in the student's submitted image, e.g., "A personal journal entry about deciding what to do after Year 12 following a local AFL match...")
+      [What you submitted] : (Brief summary of the actual topic or content written in the student's submitted image)
 
     - **Detailed Feedback Instruction**:
       Provide constructive, encouraging, and detailed feedback comparing [What to write] against [What you submitted]. Offer key corrections, grammar refinements, and actionable advice to help the student improve their writing for their specific custom prompt. **Do NOT terminate the session or issue a zero-score penalty; instead, guide the student supportively.**
@@ -58,7 +58,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 }
 
 /**
- * ★ ライティング特化のペース別インストラクション生成
+ * ★ ライティング特化のペース別インストラクション生成（AIへの厳格な出力フォーマット・トーン強制指示）
  */
 function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
   if (!pace) return "";
@@ -68,13 +68,14 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
   if (lowerPace.includes("accelerated")) {
     return `
 <pace_module_accelerated>
+- MANDATORY EXECUTION RULE: You MUST strictly adopt the following High Achiever (Accelerated) profile, tone, and output structure for your entire response.
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
 - Volume & Style: High-density 4-layer analysis report. (All explanations and feedback must be written in English).
-- Required Output Structure:
-  🏆 [Estimation Band / Evaluation] (Rigorous assessment)
-  📊 [Character Count Check] (Check characters: ${exactCharacterCount})
-  🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English.)
-  🧩 2. Discourse & Cohesion Analysis (Analyse paragraphing, logical flow, and transition words in English.)
+- REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
+  🏆 [Estimation Band / Evaluation]
+  📊 [Character Count Check] (Characters: ${exactCharacterCount})
+  🔍 1. Advanced Grammar & Lexical Upgrades
+  🧩 2. Discourse & Cohesion Analysis
   ✍ 3. Academic/Formal Register Refinement
   👑 4. Examiner Perspective & Task Alignment
   💡 5. Teacher's One-Sentence Challenge
@@ -85,11 +86,12 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
   if (lowerPace.includes("normal")) {
     return `
 <pace_module_normal>
+- MANDATORY EXECUTION RULE: You MUST strictly adopt the following Mid-level (Normal) profile, tone, and output structure for your entire response.
 - Profile & Tone: Mid-level student. Balanced, standard tutor.
 - Volume & Style: Balanced corrections in standard English.
-- Required Output Structure:
+- REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
   🟢 [Evaluation & Feedback]
-  📊 [Character Count Check]
+  📊 [Character Count Check] (Characters: ${exactCharacterCount})
   🔍 [Key Corrections & Areas for Improvement]
   📖 [Grammar Refinement]
   💡 [Teacher's One-Point Hint]
@@ -99,9 +101,10 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 
   return `
 <pace_module_steady>
+- MANDATORY EXECUTION RULE: You MUST strictly adopt the following Steady/Beginner profile, tone, and output structure for your entire response.
 - Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉).
 - Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
-- Required Output Structure:
+- REQUIRED OUTPUT STRUCTURE (You must use these exact headings):
   🟡 [Friendly Evaluation]
   📝 [Character Count Check] (Characters: ${exactCharacterCount})
   🌟 [One-Point Correction]
@@ -141,13 +144,12 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   const effectiveGrammarList = syncedKnowledge?.vceResources?.grammarList || syncedKnowledge?.vceCriteria?.grammarList || {};
   const effectiveWritingStyles = syncedKnowledge?.vceResources?.writingStyles || syncedKnowledge?.vceCriteria?.writingStyles || {};
   const effectiveWrittenCriteria = syncedKnowledge?.vceCriteria?.eoyWrittenCriteria || {};
-  const effectiveWrittenReport = syncedKnowledge?.vceCriteria?.eoyWrittenReport2025 || {};
-  const effectiveWrittenSpec = syncedKnowledge?.vceCriteria?.eoyWrittenSpec || {};
   const effectiveFaqList = syncedKnowledge?.faqList || [];
 
   const essayText = studentEssay;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : essayText.length;
 
+  // ペース指示が確実にシステムプロンプトに組み込まれるように変数反映
   const paceInstructionText = getPaceInstruction(pace, charCount);
   const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
 
@@ -203,10 +205,6 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     writingStylesText = "  * Purpose and styles: Evaluative, Persuasive, Imaginative, Informative, Personal / Recount.";
   }
 
-  let eoyCriteriaText = effectiveWrittenCriteria 
-    ? (typeof effectiveWrittenCriteria === 'string' ? effectiveWrittenCriteria : JSON.stringify(effectiveWrittenCriteria, null, 2))
-    : "  * Written Examination Assessment Criteria (Content, Grammar, Vocabulary, Structure & Spelling).";
-
   let activeSessionContext = "";
   if (selectedTextType || essayText || assignedQuestion) {
     activeSessionContext = `
@@ -232,9 +230,9 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     - Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Always ensure your feedback directly addresses the specific context and prompt provided by the student in "[Question you chose]".
   </persona_tone>
 
-${paceInstructionText}
+  ${paceInstructionText}
 
-${activeSessionContext}
+  ${activeSessionContext}
 
   <custom_guidelines_and_knowledge_base>
     - SUPPORTED TEXT TYPES:
