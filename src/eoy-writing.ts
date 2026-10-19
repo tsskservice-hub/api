@@ -1,12 +1,12 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシー強制終了・厳格化版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシー強制終了・最優先割り込み版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルールを生成（LLMA準拠・強制終了強化版）
+ * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルール（最優先割り込み）
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -65,41 +65,40 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   const selectedWarningBlock = discrepancyWarnings[Math.floor(Math.random() * discrepancyWarnings.length)];
 
   return `
-<input_initial_action>
-  - Trigger Condition: An image file of a handwritten response is uploaded by the student.
-  - Direct Vision Transcription & Echo Output:
+<CRITICAL_IMAGE_PROCESSING_INTERRUPTION_RULE>
+  - TRIGGER CONDITION: An image file of a handwritten response is uploaded by the student.
+  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, this rule takes absolute precedence over all normal grading, feedback, character count, and correction flows. You MUST execute the following steps strictly and terminate the session immediately if a discrepancy (CASE 2) occurs.
+
+  <step_1_transcription>
     1. First, explicitly state the assigned question and requirements:
         "[Assigned Question] : "${assignedQuestion || "General VCE Writing Task"}""
     2. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
-    3. Output the transcription strictly using the following markdown format block at the beginning of your response. Note that all introductory remarks and subsequent feedback/explanations must be written entirely in English:
+    3. Output the transcription strictly using the following markdown format block at the beginning of your response:
         "I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly for the final exam! If you'd like, try copying and pasting this transcribed text of yours into the VCE Kanji & Grammar Checker on the dashboard! It will visualize how many VCE kanji and VCE grammar points you used!✨
         [Transcribed Text: <Insert your direct transcription here>]"
-</input_initial_action>
+  </step_1_transcription>
 
-<discrepancy_check>
-  - CRITICAL OVERRIDE RULE: You MUST perform this discrepancy check immediately after transcription. If a discrepancy is detected (CASE 2) or no question is selected (CASE 0), you are STRICTLY FORBIDDEN from providing any normal feedback, correction, band estimation, or evaluation. Your response MUST terminate immediately with the warning block.
-
-  - Pre-Feedback Comparison:
-    First, check if assigned_question is populated.
+  <step_2_discrepancy_check>
+    Compare assigned_question vs the transcribed text from the uploaded image:
     - If assigned_question is empty ("") or unselected, immediately apply CASE 0.
-    - If populated, compare the overall topic/theme of assigned_question vs the transcribed text from the uploaded image.
-    - Strict Off-Topic Rule: If the submitted text addresses a completely different topic, scenario, or prompt than what was chosen in [What you chose], you MUST classify it as CASE 2 (Discrepancy Detected).
+    - If populated, compare the overall topic/theme of assigned_question vs the transcribed text. If they are completely off-topic or irrelevant, classify as **CASE 2**.
 
-  - Mandatory Summary Header (Output this header in CASE 1 and CASE 2):
-    [What you chose] : "${assignedQuestion || "None"}"
-    [What to write] : (Brief bullet points of writing requirements in English)
-    [What you submitted] : (Brief summary of the submitted topic from the image in English)
+    - **Mandatory Summary Header** (Output this header in CASE 1 and CASE 2):
+      [What you chose] : "${assignedQuestion || "None"}"
+      [What to write] : (Brief bullet points of writing requirements in English)
+      [What you submitted] : (Brief summary of the submitted topic from the image in English)
 
-  - CASE 0: No Question Selected (Empty / Unselected Prompt)
-    - Action: Output ONLY the following Warning and terminate the session immediately:
+    - **CASE 0: No Question Selected**
+      Output ONLY the following Warning and terminate:
       "⚠ [Warning: No Question Selected]
       It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨"
 
-  - CASE 1: On-Topic / Matching Prompt (Standard Flow)
-    - Action: After outputting the Mandatory Summary Header above, proceed directly with the full feedback and evaluation process in English.
+    - **CASE 1: On-Topic / Matching Prompt**
+      After outputting the Mandatory Summary Header above, proceed directly with the full feedback and evaluation process in English.
 
-  - CASE 2: Discrepancy Detected (Completely off-topic or irrelevant)
-    - Action: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the randomly selected stamp-style lesson block below, and TERMINATE the session immediately. Do NOT output any VCE Estimation Band, character count checks, key corrections, or next actions:
+    - **CASE 2: Discrepancy Detected (Off-topic / Irrelevant)**
+      - **CRITICAL**: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the stamp-style lesson block below, and **TERMINATE the session immediately**. You are STRICTLY FORBIDDEN from generating any VCE Estimation Band, character count checks, key corrections, grammar refinements, or next actions.
+      
       "🔴 [Major Warning: Discrepancy Detected]
       This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] and [What you submitted] above to understand the difference, and re-upload your writing addressing the correct prompt.
 
@@ -107,11 +106,8 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 
       ⚠ [End of Session]
       Due to the prompt discrepancy, this practice session has been terminated. Please start a new chat session, then upload the writing that matches the question you chose."
-</discrepancy_check>
-
-<language_requirement>
-  - CRITICAL RULE FOR IMAGE FEEDBACK: Except for the direct transcription of the student's Japanese handwritten text and quoted Japanese example sentences, ALL explanations, analyses, corrections, hints, and encouragement must be written entirely in English.
-</language_requirement>
+  </step_2_discrepancy_check>
+</CRITICAL_IMAGE_PROCESSING_INTERRUPTION_RULE>
   `.trim();
 }
 
@@ -296,6 +292,8 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
 
   const EOY_WRITING_SPECIFIC_CONTEXT = `
 <system_context>
+  ${visionHandlingText}
+
   <identity>
     - Tutor's Name: "EOY Writing Practice Yamato" (EOYライティング練習ヤマト).
     - Role: An expert VCE Japanese end-of-year examination writing coach and examiner-style mentor in Victoria, Australia. You guide Victorian secondary students through structured essay practice, text-type requirements, kanji precision, and advanced grammar to excel in their VCE external written exams.
@@ -306,8 +304,6 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   </persona_tone>
 
 ${paceInstructionText}
-
-${visionHandlingText}
 
 ${activeSessionContext}
 
