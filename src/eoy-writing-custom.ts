@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（ペース別出力完全維持版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（ペース別出力完全制御版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge";
@@ -52,25 +52,27 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
       [What you submitted] : (Brief summary of the actual topic written in the student's submitted image, e.g., "A speech/presentation about environmental issues...")
 
     - **Action After Mandatory Summary Header**:
-      Immediately after outputting the Mandatory Summary Header above, proceed directly to output the evaluation using the exact structure specified in the active <pace_module_...> below. Do NOT terminate the session; guide the student constructively.
+      Immediately after outputting the Mandatory Summary Header above, proceed directly to output the evaluation strictly following the exact structure specified in the active <pace_module_...> below. Do NOT terminate the session; guide the student constructively.
   </step_2_discrepancy_check>
 </CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   `.trim();
 }
 
 /**
- * ★ ライティング特化のペース別インストラクション生成（eoy-writing.ts と 100% 同一の見出し構造）
+ * ★ ライティング特化のペース別インストラクション生成（4つの構成要素を完全網羅）
  */
 function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
-  if (!pace) return "";
+  // 1. 未指定や空の場合は強制的に "normal" にフォールバックし、小文字化してブレを防ぐ
+  const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
 
-  const lowerPace = pace.toLowerCase();
-
-  if (lowerPace.includes("accelerated")) {
+  // 2. 排他的な if / else if / else 構造により、必ずどれか1つのモジュールが選ばれることを保証
+  if (activePace.includes("accelerated")) {
     return `
+<active_pace_module>accelerated</active_pace_module>
 <pace_module_accelerated>
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
-- Volume & Style: High-density 4-layer analysis report. (All explanations and feedback must be written in English).
+- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
+- STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers. Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
   📊 [Character Count Check] (Check characters: ${exactCharacterCount} / 500, assess density)
@@ -83,25 +85,13 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 </pace_module_accelerated>`.trim();
   }
 
-  if (lowerPace.includes("normal")) {
+  if (activePace.includes("steady")) {
     return `
-<pace_module_normal>
-- Profile & Tone: Mid-level student. Balanced, standard tutor.
-- Volume & Style: Balanced corrections in standard English.
-- Required Output Structure:
-  🟢 [VCE-Aligned Estimation Band]
-  📊 [Character Count Check]
-  🔍 [Key Corrections & Areas for Improvement]
-  📖 [Grammar Refinement]
-  💡 [Teacher's One-Point Hint]
-  🚀 [Next Action: Challenge Yourself!]
-</pace_module_normal>`.trim();
-  }
-
-  return `
+<active_pace_module>steady</active_pace_module>
 <pace_module_steady>
 - Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, ✨, 💪, 🎉).
-- Volume & Style: Max 1 simple correction. Simple English (max 3 lines).
+- ABSOLUTE LANGUAGE RULE: Keep explanations in simple English. Do not write long Japanese paragraphs.
+- STRICT OUTPUT RULE: You MUST output ONLY the 5 sections listed below using exact headers. Keep it simple and cheerful (max 3 lines per section). Do not add introductory greetings.
 - Required Output Structure:
   🟡 [VCE-Aligned Estimation Band]
   📝 [Character Count Check] (Characters: ${exactCharacterCount} / 500)
@@ -109,6 +99,23 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
   💖 [Teacher's Simple Hint]
   💪 [Next Step]
 </pace_module_steady>`.trim();
+  }
+
+  // デフォルト（または "normal" が指定された場合）
+  return `
+<active_pace_module>normal</active_pace_module>
+<pace_module_normal>
+- Profile & Tone: Mid-level student. Balanced, standard tutor.
+- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
+- STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers. Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
+- Required Output Structure:
+  🟢 [VCE-Aligned Estimation Band]
+  📊 [Character Count Check] (Characters: ${exactCharacterCount} / 500)
+  🔍 [Key Corrections & Areas for Improvement]
+  📖 [Grammar Refinement]
+  💡 [Teacher's One-Point Hint]
+  🚀 [Next Action: Challenge Yourself!]
+</pace_module_normal>`.trim();
 }
 
 export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
@@ -243,7 +250,12 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
   <persona_tone>
     - Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Act as an experienced VCE teacher committed to helping students achieve high study scores.
+    - CRITICAL LANGUAGE DIRECTIVE: Regardless of the student's input language or prompt, ALL analytical feedback, error explanations, grammar breakdowns, and evaluation reports MUST be written strictly in English (following the active pace module structure below). Never output a long free-form Japanese review prose.
   </persona_tone>
+
+  <mandatory_output_enforcement>
+    - ABSOLUTE RULE: You MUST strictly follow the output structure defined in the active pace module below. Do not add unrequested conversational greetings or introductory paragraphs outside the designated structure.
+  </mandatory_output_enforcement>
 
 ${paceInstructionText}
 
