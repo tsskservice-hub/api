@@ -1,12 +1,12 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（Vision・ディスクレパンシーチェック統合版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシー強制終了・厳格化版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルールを生成（LLMA準拠）
+ * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルールを生成（LLMA準拠・強制終了強化版）
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -15,7 +15,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="/images/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -31,7 +31,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="/images/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -47,7 +47,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="/images/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -77,11 +77,13 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 </input_initial_action>
 
 <discrepancy_check>
+  - CRITICAL OVERRIDE RULE: You MUST perform this discrepancy check immediately after transcription. If a discrepancy is detected (CASE 2) or no question is selected (CASE 0), you are STRICTLY FORBIDDEN from providing any normal feedback, correction, band estimation, or evaluation. Your response MUST terminate immediately with the warning block.
+
   - Pre-Feedback Comparison:
     First, check if assigned_question is populated.
     - If assigned_question is empty ("") or unselected, immediately apply CASE 0.
     - If populated, compare the overall topic/theme of assigned_question vs the transcribed text from the uploaded image.
-    - Lenient Evaluation Rule: As long as the submitted text addresses the assigned question's general topic or theme, treat it as On-Topic. Do NOT trigger a discrepancy for minor misunderstandings, grammatical errors, or phrasing differences. ONLY trigger if completely off-topic.
+    - Strict Off-Topic Rule: If the submitted text addresses a completely different topic, scenario, or prompt than what was chosen in [What you chose], you MUST classify it as CASE 2 (Discrepancy Detected).
 
   - Mandatory Summary Header (Output this header in CASE 1 and CASE 2):
     [What you chose] : "${assignedQuestion || "None"}"
@@ -97,7 +99,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     - Action: After outputting the Mandatory Summary Header above, proceed directly with the full feedback and evaluation process in English.
 
   - CASE 2: Discrepancy Detected (Completely off-topic or irrelevant)
-    - Action: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the randomly selected stamp-style lesson block below, and terminate the session immediately:
+    - Action: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the randomly selected stamp-style lesson block below, and TERMINATE the session immediately. Do NOT output any VCE Estimation Band, character count checks, key corrections, or next actions:
       "🔴 [Major Warning: Discrepancy Detected]
       This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] and [What you submitted] above to understand the difference, and re-upload your writing addressing the correct prompt.
 
@@ -194,10 +196,8 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     ...baseOptions 
   } = options;
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）を any 型として安全に取得
   const syncedKnowledge = getSyncedKnowledge() as any;
 
-  // 指定された各データを安全に抽出（エラーを回避）
   const effectiveKanjiList = syncedKnowledge?.vceResources?.kanjiList || syncedKnowledge?.kanjiList || [];
   const effectiveVocabularyList = syncedKnowledge?.vceResources?.vceVocabularyList || syncedKnowledge?.vceVocabularyList || [];
   const effectiveWritingExamQuestions = syncedKnowledge?.vceResources?.writingExamQuestions || syncedKnowledge?.writingExamQuestions || [];
@@ -212,13 +212,9 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   const essayText = studentEssay;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : essayText.length;
 
-  // ペース別インストラクションの生成
   const paceInstructionText = getPaceInstruction(pace, charCount);
-
-  // 画像添付時のVisionハンドリングおよびディスクレパンシーチェック指示の生成
   const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
 
-  // 1. テキストタイプ（texttypes.json）のテキスト化
   let textTypesText = "";
   if (effectiveTextTypes) {
     if (Array.isArray(effectiveTextTypes)) {
@@ -245,7 +241,6 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
   * Report (レポート): Title, Author, Objective facts, Structured sections.`;
   }
 
-  // 2. VCE文法リストのテキスト化
   let grammarText = "";
   if (effectiveGrammarList) {
     if (Array.isArray(effectiveGrammarList)) {
@@ -261,7 +256,6 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     grammarText = "  * Official VCE Grammar structures (e.g., conditionals, passive/causative, conjecture expressions)";
   }
 
-  // 3. ライティングスタイル / 目的のテキスト化
   let writingStylesText = "";
   if (effectiveWritingStyles) {
     if (typeof effectiveWritingStyles === 'string') {
@@ -273,27 +267,22 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     writingStylesText = "  * Purpose and styles: Evaluative, Persuasive, Imaginative, Informative, Personal / Recount.";
   }
 
-  // 4. 期末筆記試験採点基準のテキスト化
   let eoyCriteriaText = effectiveWrittenCriteria 
     ? (typeof effectiveWrittenCriteria === 'string' ? effectiveWrittenCriteria : JSON.stringify(effectiveWrittenCriteria, null, 2))
     : "  * VCE End-of-Year Written Examination Assessment Criteria (Content, Grammar, Vocabulary, Structure & Spelling).";
 
-  // 5. 期末筆記試験レポートのテキスト化
   let eoyReport2025Text = effectiveWrittenReport 
     ? (typeof effectiveWrittenReport === 'string' ? effectiveWrittenReport : JSON.stringify(effectiveWrittenReport, null, 2))
     : "  * 2025 VCE End-of-Year Written Examination Report & Examiner Feedback Insights.";
 
-  // 6. 期末筆記試験仕様のテキスト化
   let eoySpecText = effectiveWrittenSpec 
     ? (typeof effectiveWrittenSpec === 'string' ? effectiveWrittenSpec : JSON.stringify(effectiveWrittenSpec, null, 2))
     : "  * VCE End-of-Year Written Examination Specifications & Section Layouts.";
 
-  // 7. 各種リソースの件数確認
   const kanjiCount = Array.isArray(effectiveKanjiList) ? effectiveKanjiList.length : "Standard VCE Core";
   const vocabularyCount = Array.isArray(effectiveVocabularyList) ? effectiveVocabularyList.length : "Standard VCE Core";
   const writingExamQuestionsCount = Array.isArray(effectiveWritingExamQuestions) ? effectiveWritingExamQuestions.length : "Standard VCE Core";
 
-  // 生徒が選択しているテキストタイプやエッセイ本文がある場合の動的セッション情報
   let activeSessionContext = "";
   if (selectedTextType || essayText) {
     activeSessionContext = `
@@ -305,7 +294,6 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
 `;
   }
 
-  // EOY Writing Practice 固有のシステムコンテキストを構築
   const EOY_WRITING_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
@@ -364,7 +352,6 @@ ${eoyReport2025Text}
 </system_context>
   `.trim();
 
-  // YamatoApiCommon を通して、時間・天気・FAQ・共通ルールを自動統合して返却
   return await YamatoApiCommon(EOY_WRITING_SPECIFIC_CONTEXT, {
     ...baseOptions,
     faqList: effectiveFaqList,
