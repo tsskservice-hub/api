@@ -241,7 +241,8 @@ app.post('/chat', async (c) => {
       userId: effectiveUserId,
       appType: body.appType,
       messageLength: body.message?.length,
-      hasImage: Boolean(body.imageBase64)
+      hasImage: Boolean(body.imageBase64),
+      assignedQuestion: body.assignedQuestion
     });
 
     const userMessage = body.message;
@@ -324,8 +325,8 @@ app.post('/chat', async (c) => {
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
-      hasFiles: Boolean(body.imageBase64),           // 👈 画像の有無を渡す
-      assignedQuestion: body.assignedQuestion || "", // 👈 選択中の設問情報を渡す
+      hasFiles: Boolean(body.imageBase64),           // 👈 画像の有無を確実に渡す
+      assignedQuestion: body.assignedQuestion || "", // 👈 ダッシュボードで選択中の設問情報を確実に渡す
       timeZone: body.timeZone,
       cityName: body.cityName,
     };

@@ -1,12 +1,12 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシー強制終了・最優先割り込み版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（厳密なディスクレパンシーチェック・ヘッダー完全対応版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルール（最優先割り込み）
+ * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルール
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -64,50 +64,60 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 
   const selectedWarningBlock = discrepancyWarnings[Math.floor(Math.random() * discrepancyWarnings.length)];
 
+  const hasAssignedQuestion = Boolean(assignedQuestion && assignedQuestion.trim() !== "");
+
   return `
-<CRITICAL_IMAGE_PROCESSING_INTERRUPTION_RULE>
+<CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   - TRIGGER CONDITION: An image file of a handwritten response is uploaded by the student.
-  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, this rule takes absolute precedence over all normal grading, feedback, character count, and correction flows. You MUST execute the following steps strictly and terminate the session immediately if a discrepancy (CASE 2) occurs.
+  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST execute the following steps in strict order and format.
 
   <step_1_transcription>
-    1. First, explicitly state the assigned question and requirements:
-        "[Assigned Question] : "${assignedQuestion || "General VCE Writing Task"}""
+    1. First, explicitly state the assigned question:
+        [Assigned Question] : "${assignedQuestion || "None selected"}"
     2. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
-    3. Output the transcription strictly using the following markdown format block at the beginning of your response:
+    3. Output the transcription strictly using the following format block:
         "I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly for the final exam! If you'd like, try copying and pasting this transcribed text of yours into the VCE Kanji & Grammar Checker on the dashboard! It will visualize how many VCE kanji and VCE grammar points you used!✨
         [Transcribed Text: <Insert your direct transcription here>]"
   </step_1_transcription>
 
   <step_2_discrepancy_check>
-    Compare assigned_question vs the transcribed text from the uploaded image:
-    - If assigned_question is empty ("") or unselected, immediately apply CASE 0.
-    - If populated, compare the overall topic/theme of assigned_question vs the transcribed text. If they are completely off-topic or irrelevant, classify as **CASE 2**.
-
-    - **Mandatory Summary Header** (Output this header in CASE 1 and CASE 2):
-      [What you chose] : "${assignedQuestion || "None"}"
-      [What to write] : (Brief bullet points of writing requirements in English)
+    - **CASE 0: No Question Selected**
+      If assigned_question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), immediately apply CASE 0:
+      
+      [Assigned Question] : "None"
+      [What you chose] : "None"
+      [What to write] : Please select a question from the Task List first.
       [What you submitted] : (Brief summary of the submitted topic from the image in English)
 
-    - **CASE 0: No Question Selected**
-      Output ONLY the following Warning and terminate:
-      "⚠ [Warning: No Question Selected]
-      It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨"
+      ⚠ [Warning: No Question Selected]
+      It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨
 
-    - **CASE 1: On-Topic / Matching Prompt**
-      After outputting the Mandatory Summary Header above, proceed directly with the full feedback and evaluation process in English.
+    - **CASE 1 vs CASE 2 Evaluation**:
+      Compare the requirements of [Assigned Question] vs the topic of the transcribed text.
+      - If the submitted text addresses the assigned question's topic, proceed to **CASE 1 (On-Topic)**.
+      - If the submitted text is completely off-topic, irrelevant, or answers a different prompt than [Assigned Question], you MUST immediately classify it as **CASE 2 (Discrepancy Detected)**.
 
-    - **CASE 2: Discrepancy Detected (Off-topic / Irrelevant)**
-      - **CRITICAL**: After outputting the Mandatory Summary Header above, output ONLY the following Major Warning, including the stamp-style lesson block below, and **TERMINATE the session immediately**. You are STRICTLY FORBIDDEN from generating any VCE Estimation Band, character count checks, key corrections, grammar refinements, or next actions.
+    - **Mandatory Summary Header (Required for CASE 1 and CASE 2)**:
+      [Assigned Question] : "${assignedQuestion}"
+      [What you chose] : "${assignedQuestion}"
+      [What to write] : 
+      * Demonstrate VCE-level Japanese writing skills addressing the specific prompt requirements of "${assignedQuestion}".
+      * Present a coherent and appropriate text in the required text type.
+      * Express ideas clearly and logically matching the assigned topic.
+      [What you submitted] : (Brief summary of the actual topic written in the student's submitted image, e.g., "A speech/presentation about volunteer activities, comparing Australia and Japan...")
+
+    - **Action for CASE 2 (Discrepancy Detected)**:
+      After outputting the Mandatory Summary Header above, output ONLY the following Major Warning and **TERMINATE the session immediately**. Do NOT provide any VCE Estimation Band, character count checks, key corrections, grammar refinements, or next actions:
       
-      "🔴 [Major Warning: Discrepancy Detected]
+      🔴 [Major Warning: Discrepancy Detected]
       This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] and [What you submitted] above to understand the difference, and re-upload your writing addressing the correct prompt.
 
       ${selectedWarningBlock}
 
       ⚠ [End of Session]
-      Due to the prompt discrepancy, this practice session has been terminated. Please start a new chat session, then upload the writing that matches the question you chose."
+      Due to the prompt discrepancy, this practice session has been terminated. Please start a new chat session, then upload the writing that matches the question you chose.
   </step_2_discrepancy_check>
-</CRITICAL_IMAGE_PROCESSING_INTERRUPTION_RULE>
+</CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   `.trim();
 }
 
@@ -164,23 +174,17 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 </pace_module_steady>`.trim();
 }
 
-/**
- * EOY Writing Practice プロンプト生成用のオプション
- */
 export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
-  pace?: string;                   // 指導ペース（accelerated, normal, steady）
-  exactCharacterCount?: number;    // エッセイの正確な文字数
-  selectedTextType?: string;       // 選択されたテキストタイプ（Article, Speech 等）
-  studentEssay?: string;           // 現在編集中のエッセイ本文
-  hasFiles?: boolean;              // 画像ファイルが添付されているかどうか
-  assignedQuestion?: string;       // 割り当てられた／選択された問題のテキスト
+  pace?: string;
+  exactCharacterCount?: number;
+  selectedTextType?: string;
+  studentEssay?: string;
+  hasFiles?: boolean;
+  assignedQuestion?: string;
   timeZone?: string;
   cityName?: string;
 }
 
-/**
- * EOY Writing Practice ヤマト固有のアイデンティティと、API側同期ナレッジを組み込む関数
- */
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
   const { 
     pace = "", 
