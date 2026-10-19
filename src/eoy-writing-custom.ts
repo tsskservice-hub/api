@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（冒頭表示＋ペース別出力制御版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（正確な文字数カウント＆ペース別出力制御版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
@@ -83,7 +83,13 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     ...baseOptions 
   } = options;
 
-  const charCount = exactCharacterCount > 0 ? exactCharacterCount : studentEssay.length;
+  const rawText = studentEssay || "";
+  
+  // 💡 文字数カウントの修正：スペースや改行を除いた純粋な文字数をカウント、あるいは正確な文字長を取得
+  // ※日本語の文字数を正確に数えるため、空白・改行を除外してカウントするか、スプレッド構文でサロゲートペア等を考慮した長さを算出
+  const calculatedCharCount = Array.from(rawText.replace(/[\s\n\r]/g, "")).length;
+  const charCount = exactCharacterCount > 0 ? exactCharacterCount : (calculatedCharCount > 0 ? calculatedCharCount : rawText.length);
+
   const paceInstructionText = getPaceModuleInstruction(pace, charCount);
 
   const customContext = `
@@ -95,14 +101,14 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
   <student_submission_data>
     - [Assigned Question]: "${assignedQuestion || "None provided"}"
-    - [Transcribed Text / Student Answer]: "${studentEssay || "No text provided yet."}"
+    - [Transcribed Text / Student Answer]: "${rawText || "No text provided yet."}"
     - [Character Count]: ${charCount} characters
   </student_submission_data>
 
   <strict_execution_rules>
     1. MANDATORY START: You MUST begin your response by outputting the following three items first:
        [Assigned Question] : "${assignedQuestion || "None provided"}"
-       [Transcribed Text] : "${studentEssay || "No text provided yet."}"
+       [Transcribed Text] : "${rawText || "No text provided yet."}"
        [Character Count] : ${charCount} characters
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the three header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
