@@ -6,7 +6,7 @@ import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよび持参問題に基づく評価ルール（強制終了なし）
+ * ★ 画像が添付された際の OCR・文字起こしおよび持参問題に基づく評価ルール（形式厳格化・自由記述禁止版）
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -16,44 +16,29 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   return `
 <CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   - TRIGGER CONDITION: An image file of a handwritten response is uploaded by the student.
-  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST execute the following steps in strict order and format.
+  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST strictly adhere to the following sequence. Do NOT output free-form conversational intros, friendly greetings, or unrequested advice blocks.
 
-  <step_1_transcription>
-    1. First, explicitly state the assigned question:
+  <step_1_transcription_and_summary_header>
+    1. First, you must internally read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
+    2. You MUST begin your response by outputting ONLY the Mandatory Summary Header strictly using the following format:
         [Assigned Question] : "${assignedQuestion || "None selected"}"
-    2. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
-    3. Output the transcription strictly using the following format block:
-        "I have transcribed your response as follows. Please check if it is correct! If there are any errors, feel free to rewrite it clearly and upload it again🌟 Let's practice writing neatly for the final exam! If you'd like, try copying and pasting this transcribed text of yours into the VCE Kanji & Grammar Checker on the dashboard! It will visualize how many VCE kanji and VCE grammar points you used!✨
-        [Transcribed Text: <Insert your direct transcription here>]"
-  </step_1_transcription>
+        [What you chose] : "${assignedQuestion || "None selected"}"
+        [What to write] : 
+        * Demonstrate VCE-level Japanese writing skills addressing the specific prompt requirements.
+        * Present a coherent and appropriate text in the required text type.
+        * Express ideas clearly and logically matching the assigned topic.
+        [What you submitted] : (Provide a brief 1-sentence summary of the actual topic written in the student's submitted image in English)
+  </step_1_transcription_and_summary_header>
 
-  <step_2_discrepancy_check>
+  <step_2_strict_output_enforcement>
     - **CASE 0: No Question Selected**
-      If assigned_question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), immediately apply CASE 0:
-      
-      [Assigned Question] : "None"
-      [What you chose] : "None"
-      [What to write] : Please enter or select your custom question / prompt first.
-      [What you submitted] : (Brief summary of the submitted topic from the image in English)
+      If assigned_question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), you must immediately output:
+      "It looks like you haven't entered your custom question yet! Please type or paste your external question on your dashboard first, then upload your answer photo! 📋✨"
 
-      ⚠ [Warning: No Question Selected]
-      It looks like you haven't entered your custom question yet! Please type or paste your external question / prompt on your dashboard first, then upload your answer photo! 📋✨
-
-    - **CASE 1: Custom Question Evaluation (On-Topic Evaluation)**
-      Compare the requirements of [Assigned Question] vs the topic of the transcribed text, and output the Mandatory Summary Header:
-
-    - **Mandatory Summary Header (Required for Evaluation)**:
-      [Assigned Question] : "${assignedQuestion}"
-      [What you chose] : "${assignedQuestion}"
-      [What to write] : 
-      * Demonstrate VCE-level Japanese writing skills addressing the specific prompt requirements of "${assignedQuestion}".
-      * Present a coherent and appropriate text in the required text type.
-      * Express ideas clearly and logically matching the assigned topic.
-      [What you submitted] : (Brief summary of the actual topic written in the student's submitted image, e.g., "A speech/presentation about environmental issues...")
-
-    - **Action After Mandatory Summary Header**:
-      Immediately after outputting the Mandatory Summary Header above, proceed directly to output the evaluation strictly following the exact structure specified in the active <pace_module_...> below. Do NOT terminate the session; guide the student constructively.
-  </step_2_discrepancy_check>
+    - **CASE 1: Immediate Transition to Pace Module**
+      Immediately after the Mandatory Summary Header, you MUST proceed directly to output the evaluation strictly following the exact structure specified in the active <pace_module_...> below. 
+      - **CRITICAL BAN**: Do NOT include any conversational greetings (e.g., "Hello, my friend!"), do NOT write long introductory paragraphs, and do NOT provide free-form advice lists (such as numbered tips or general questions). Output ONLY the exact required sections defined in the active pace module!
+  </step_2_strict_output_enforcement>
 </CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   `.trim();
 }
@@ -254,7 +239,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   </persona_tone>
 
   <mandatory_output_enforcement>
-    - ABSOLUTE RULE: You MUST strictly follow the output structure defined in the active pace module below. Do not add unrequested conversational greetings or introductory paragraphs outside the designated structure.
+    - ABSOLUTE RULE: You MUST strictly follow the output structure defined in the active pace module below. Do not add unrequested conversational greetings, introductory paragraphs, or numbered advice blocks outside the designated structure.
   </mandatory_output_enforcement>
 
 ${paceInstructionText}
