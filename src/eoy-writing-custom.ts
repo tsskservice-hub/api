@@ -1,12 +1,12 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（ペース別出力完全制御版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（文字起こし・表示限定テスト版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよび持参問題に基づく評価ルール（形式厳格化・自由記述禁止版）
+ * ★ 画像が添付された際のルール：指定された問題、文字起こし、文字数のみを出力し、他を一切非表示にする
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
@@ -16,41 +16,28 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   return `
 <CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   - TRIGGER CONDITION: An image file of a handwritten response is uploaded by the student.
-  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST strictly adhere to the following sequence. Do NOT output free-form conversational intros, friendly greetings, or unrequested advice blocks.
+  - ABSOLUTE OVERRIDE RULE: When an image is attached, you MUST output ONLY the following three items and NOTHING ELSE. 
+  - STRICT BAN: Do NOT output any VCE estimation bands, character count evaluations, grammar corrections, teacher hints, greetings, conversational text, or advice sections of any kind. Stop immediately after displaying the character count.
 
-  <step_1_transcription_and_summary_header>
-    1. First, you must internally read and transcribe the student's handwritten response directly from the uploaded image with high accuracy.
-    2. You MUST begin your response by outputting ONLY the Mandatory Summary Header strictly using the following format:
-        [Assigned Question] : "${assignedQuestion || "None selected"}"
-        [What you chose] : "${assignedQuestion || "None selected"}"
-        [What to write] : 
-        * Demonstrate VCE-level Japanese writing skills addressing the specific prompt requirements.
-        * Present a coherent and appropriate text in the required text type.
-        * Express ideas clearly and logically matching the assigned topic.
-        [What you submitted] : (Provide a brief 1-sentence summary of the actual topic written in the student's submitted image in English)
-  </step_1_transcription_and_summary_header>
+  <required_output_format>
+    [Assigned Question] : "${assignedQuestion || "None selected"}"
+    [Transcribed Text] : <Insert your high-accuracy direct transcription of the student's handwritten Japanese text from the image here>
+    [Character Count] : <Insert the exact character count of the transcribed Japanese text, e.g., 25 characters>
+  </required_output_format>
 
-  <step_2_strict_output_enforcement>
-    - **CASE 0: No Question Selected**
-      If assigned_question is empty or unselected (${hasAssignedQuestion ? "false" : "true"}), you must immediately output:
-      "It looks like you haven't entered your custom question yet! Please type or paste your external question on your dashboard first, then upload your answer photo! 📋✨"
-
-    - **CASE 1: Immediate Transition to Pace Module**
-      Immediately after the Mandatory Summary Header, you MUST proceed directly to output the evaluation strictly following the exact structure specified in the active <pace_module_...> below. 
-      - **CRITICAL BAN**: Do NOT include any conversational greetings (e.g., "Hello, my friend!"), do NOT write long introductory paragraphs, and do NOT provide free-form advice lists (such as numbered tips or general questions). Output ONLY the exact required sections defined in the active pace module!
-  </step_2_strict_output_enforcement>
+  ${!hasAssignedQuestion ? `
+    Note: If assigned_question is empty, display "[Assigned Question] : None selected (Please enter your custom question on the dashboard)"
+  ` : ""}
 </CRITICAL_VISION_HANDLING_AND_DISCREPANCY_RULES>
   `.trim();
 }
 
 /**
- * ★ ライティング特化のペース別インストラクション生成（4つの構成要素を完全網羅）
+ * ★ ライティング特化のペース別インストラクション生成（通常テキストチャット用）
  */
 function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
-  // 1. 未指定や空の場合は強制的に "normal" にフォールバックし、小文字化してブレを防ぐ
   const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
 
-  // 2. 排他的な if / else if / else 構造により、必ずどれか1つのモジュールが選ばれることを保証
   if (activePace.includes("accelerated")) {
     return `
 <active_pace_module>accelerated</active_pace_module>
@@ -86,7 +73,6 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 </pace_module_steady>`.trim();
   }
 
-  // デフォルト（または "normal" が指定された場合）
   return `
 <active_pace_module>normal</active_pace_module>
 <pace_module_normal>
