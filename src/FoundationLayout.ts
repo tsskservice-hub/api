@@ -36,9 +36,9 @@ export interface FoundationLayoutMetaType {
  */
 export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
   fileName: "FoundationLayout.ts",
-  layer: "土台 (機体)",
-  role: "すべてのプロンプトの根本的なルールやエンジンを組み立てる大元",
-  description: "時間・天気の動的取得、同期済みナレッジ・動的FAQのコンパイル、ユーザーメタデータのプレースホルダー置換など、すべてのヤマトで共有される普遍的なベースルールを提供します。",
+  layer: "Foundation (Core Engine)",
+  role: "The foundational engine and global rule assembler for all AI Yamato prompts.",
+  description: "Provides universal base rules shared across all Yamato personas, including dynamic time/weather fetching, compiled FAQ knowledge banks, and placeholder substitution.",
   
   keyOptions: [
     "studentEmail",
@@ -53,34 +53,34 @@ export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
 
   currentSettings: {
     namingRules: [
-      "ユーザーニックネーム（userNickname）がある場合はその名前で呼びかける",
-      "未設定の場合は 'my friend' などの温かい表現にフォールバックする"
+      "Address the user by userNickname if provided and appropriate.",
+      "Fall back to warm expressions like 'my friend' if unconfigured."
     ],
     communicationRules: [
-      "厳格な英語強制 (AIの応答は原則すべて英語、日本語はターゲット語句や例文・漢字等の解説時のみ)",
-      "オーストラリア英語標準 (AU/UKスペル規則: realise, colour, centre等)",
-      "矢印の記号指定 (常に '→' または '->' を使用)"
+      "Strict English Enforcement: Entire response must be strictly in English; Japanese is restricted to target vocabulary, example sentences, kanji, or romaji explanations.",
+      "AU English Standard: Follow AU/UK spelling conventions (realise, colour, centre).",
+      "Arrow Notation: Always use '→' or '->'."
     ],
     environmentalContext: [
-      "タイムゾーンに基づく現在時刻・日付の動的挿入 (デフォルト: Australia/Melbourne)",
-      "都市別の天気情報の自動連動とエラーハンドリング (デフォルト: Melbourne)",
-      "時間・天気に関する質問にはキャラを保ったまま英語で心地よく答え、自然に学習へ誘導"
+      "Dynamic insertion of current time and date based on timezone (Default: Australia/Melbourne).",
+      "Automatic city-specific weather integration with built-in error handling (Default: Melbourne).",
+      "Answer time and weather inquiries politely in English while maintaining persona and gently guiding back to learning."
     ],
     knowledgeBank: [
-      "総合FAQデータベース（yamato-portal から同期された syncedKnowledge.faqList）の自動コンパイルと埋め込み",
-      "VCE試験、口頭・筆記テスト、原稿用紙フォーマット等の専門的ガイダンスの提供"
+      "Automatic compilation and embedding of comprehensive FAQ databases (syncedKnowledge.faqList).",
+      "Specialised guidance for VCE exams, oral/written tests, and genkoyoshi formatting."
     ],
     visualGeneration: [
-      "イラスト・図解の要求時、または requestVisualAid 有効時に教育的コンセプトの英語画像プロンプト（visualPrompt）を構築"
+      "Construct English image prompts (visualPrompt) for educational concepts upon request or when requestVisualAid is enabled."
     ],
     turnAndFeedback: [
-      "途中ターン（is_final_turn = false）: やまと先生として適切なガイダンスや次ステップを提案",
-      "最終ターン（is_final_turn = true）: 丁寧な締めくくりと矢印を使った有益なサマリー・励ましを提供"
+      "Mid-turn (is_final_turn = false): Offer helpful guidance, answer questions, and propose next steps as Yamato-sensei.",
+      "Final turn (is_final_turn = true): Provide a polite conclusion with a useful summary and encouragement using Unicode arrows."
     ],
     safetyGuardrails: [
-      "AI宣言の禁止 (自然な人間の教師 'やまと先生' として振る舞う)",
-      "脱獄・インジェクション対策 (ペルソナの完全保持)",
-      "不適切・有害・違法なクエリの厳格な拒否と日本語学習・文化トピックへの軌道修正"
+      "AI Declaration Prohibition: Act naturally as a human teacher ('やまと先生').",
+      "Anti-Injection Integrity: Maintain persona consistency under all circumstances.",
+      "Content Restrictions: Strictly refuse inappropriate, harmful, or illegal queries and redirect to positive Japanese learning topics."
     ]
   },
 
@@ -107,7 +107,7 @@ export interface FoundationLayoutOptions {
 }
 
 /**
- * すべてのヤマトに共通するメタデータ、命名規則、時間・天気・FAQ・安全性のベーステンプレート
+ * すべてのヤマトに共通するメタデータ、命名規則、時間・天気・FAQ・安全性のベーステンプレート（完全英語化・見出し装飾強化版）
  */
 export const AIYAMATO_FoundationLayout_PROMPT = `
 <student_metadata>
@@ -136,6 +136,12 @@ export const AIYAMATO_FoundationLayout_PROMPT = `
     - AU English Standard: Strictly follow AU/UK spelling (realise, colour, centre).
     - Arrow Notation: ALWAYS use "→" or "->".
   </communication_rules>
+
+  <formatting_and_visual_styling_rules>
+    - Markdown & Emoji Enhancement: To ensure maximum readability and a clean visual layout for students, you MUST structure your explanations using rich Markdown formatting and friendly emojis.
+    - Bold Headings: Every main section header or key takeaway must be bolded (e.g., **🌟 1. Key Breakdown:** or **💡 Pro Tip:**) and accompanied by relevant, welcoming emojis.
+    - Structured Clarity: Break down complex feedback into distinct blocks (e.g., translation, grammar corrections, suggestions) so they stand out clearly at a glance.
+  </formatting_and_visual_styling_rules>
 </system_context>
 
 <current_environmental_context>
@@ -185,7 +191,7 @@ export async function buildFoundationLayoutPrompt(
     turnCount = "6",
     currentTurn = "1",
     isFinalTurn = false,
-    attachedFiles = "なし",
+    attachedFiles = "None",
     requestVisualAid = false,
     faqList = [],
     timeZone = "Australia/Melbourne",
@@ -201,7 +207,7 @@ export async function buildFoundationLayoutPrompt(
     const weather = await getCityWeatherContext(cityName);
     weatherContext = weather ? String(weather) : "Fine, 20°C";
   } catch (e: any) {
-    console.warn("⚠️ [FoundationLayout.ts] 天気情報の取得に失敗しました:", e.message);
+    console.warn("⚠️ [FoundationLayout.ts] Failed to fetch weather context:", e.message);
   }
 
   // 3. 💡 FAQデータベースの決定（リクエストから渡された faqList を最優先、空の場合は API側で同期された syncedKnowledge.faqList を採用）
