@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（正確な文字数カウント＆ペース別出力制御版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（全ペース英語出力・正確な文字数カウント＆ペース別出力制御版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
@@ -26,7 +26,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <active_pace_module>accelerated</active_pace_module>
 <pace_module_accelerated>
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
-- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English.
+- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
@@ -45,7 +45,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <active_pace_module>steady</active_pace_module>
 <pace_module_steady>
 - Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, ✨, 💪, 🎉).
-- ABSOLUTE LANGUAGE RULE: Keep explanations in simple English. Do not write long paragraphs.
+- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in simple English. Do NOT write long explanations in Japanese. Keep the language entirely in English.
 - STRICT OUTPUT RULE: You MUST output ONLY the 5 sections listed below using exact headers (immediately following the mandatory header items above). Keep it simple and cheerful (max 3 lines per section). Do not add introductory greetings.
 - Required Output Structure:
   🟡 [VCE-Aligned Estimation Band]
@@ -61,7 +61,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <active_pace_module>normal</active_pace_module>
 <pace_module_normal>
 - Profile & Tone: Mid-level student. Balanced, standard tutor.
-- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English.
+- ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🟢 [VCE-Aligned Estimation Band]
@@ -84,9 +84,6 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   } = options;
 
   const rawText = studentEssay || "";
-  
-  // 💡 文字数カウントの修正：スペースや改行を除いた純粋な文字数をカウント、あるいは正確な文字長を取得
-  // ※日本語の文字数を正確に数えるため、空白・改行を除外してカウントするか、スプレッド構文でサロゲートペア等を考慮した長さを算出
   const calculatedCharCount = Array.from(rawText.replace(/[\s\n\r]/g, "")).length;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : (calculatedCharCount > 0 ? calculatedCharCount : rawText.length);
 
@@ -112,7 +109,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
        [Character Count] : ${charCount} characters
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the three header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
-    3. Do NOT include conversational greetings (e.g., "Hello!"), introductory chat, or unrequested advice blocks outside the mandatory header and the active pace module structure.
+    3. ABSOLUTE LANGUAGE OVERRIDE: Regardless of the student's input or the chosen pace persona, ALL critiques, bands, corrections, and hints must be written strictly in English (using simple English for steady pace). Do not write full paragraphs of feedback in Japanese.
   </strict_execution_rules>
 
   ${paceInstructionText}
