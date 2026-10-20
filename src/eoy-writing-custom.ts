@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（複数画像OCR・文字起こし自動化対応版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（Task you worked on & What to write 完備版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
@@ -16,21 +16,23 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
 }
 
 /**
- * 💡 画像が添付された際の OCR・文字起こし指示ルール
+ * 💡 画像が添付された際の OCR・文字起こし指示ルール（Task/What to write 対応）
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
-  if (!hasFiles) return "";
+  const safeAssigned = assignedQuestion || "None provided";
 
   return `
 <CRITICAL_VISION_HANDLING_RULES>
-  - TRIGGER CONDITION: An image file of a handwritten student answer is uploaded.
-  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST execute the following steps:
-    1. Read and transcribe the student's handwritten Japanese response directly from the uploaded image with high accuracy.
-    2. Count the exact number of characters from the transcribed student response.
-    3. Begin your response strictly with the following three header items using the transcribed text and calculated character count:
-       [Assigned Question] : "${assignedQuestion || "None provided"}"
-       [Transcribed Text] : "<Insert your direct transcription of the student's handwritten response here>"
-       [Character Count] : <Insert the exact character count of the transcribed text> characters
+  - TRIGGER CONDITION: An image file of a handwritten student answer is uploaded (hasFiles: ${hasFiles}).
+  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached or a question is provided, you MUST begin your response strictly with the following structured header items:
+     [Assigned Question] : "${safeAssigned}"
+     [Task you worked on] : "${safeAssigned}"
+     [What to write] : 
+       * Address the specific prompt requirements of "${safeAssigned}" accurately.
+       * Present a coherent and appropriate text structure matching the required text type/topic.
+       * Clearly develop ideas and arguments relevant to the brought question.
+     [Transcribed Text] : "<Insert your direct transcription of the student's handwritten response here>"
+     [Character Count] : <Insert the exact character count of the transcribed text> characters
 </CRITICAL_VISION_HANDLING_RULES>
   `.trim();
 }
@@ -109,6 +111,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
   const paceInstructionText = getPaceModuleInstruction(pace, charCount);
   const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
+  const safeAssigned = assignedQuestion || "None provided";
 
   const customContext = `
 <system_context>
@@ -120,18 +123,24 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   </identity>
 
   <student_submission_data>
-    - [Assigned Question]: "${assignedQuestion || "None provided"}"
+    - [Assigned Question]: "${safeAssigned}"
+    - [Task you worked on]: "${safeAssigned}"
     - [Transcribed Text / Student Answer]: "${rawText || (hasFiles ? "Please read and transcribe the attached student answer image." : "No text provided yet.")}"
     - [Character Count]: ${charCount} characters
   </student_submission_data>
 
   <strict_execution_rules>
-    1. MANDATORY START: You MUST begin your response by outputting the following three items first:
-       [Assigned Question] : "${assignedQuestion || "None provided"}"
+    1. MANDATORY START: You MUST begin your response by outputting the following header items first in exact order:
+       [Assigned Question] : "${safeAssigned}"
+       [Task you worked on] : "${safeAssigned}"
+       [What to write] : 
+         * Address the specific prompt requirements of "${safeAssigned}" accurately.
+         * Present a coherent and appropriate text structure matching the required text type/topic.
+         * Clearly develop ideas and arguments relevant to the brought question.
        [Transcribed Text] : "${rawText || (hasFiles ? "(Transcribed from attached image)" : "No text provided yet.")}"
-       [Character Count] : ${charCount} characters (or update to exact counted characters if reading from an attached image)
+       [Character Count] : ${charCount} characters
 
-    2. IMMEDIATE TRANSITION: Immediately after displaying the three header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
+    2. IMMEDIATE TRANSITION: Immediately after displaying the header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
     3. ABSOLUTE LANGUAGE OVERRIDE: Regardless of the student's input or the chosen pace persona, ALL critiques, bands, corrections, and hints must be written strictly in English (using simple English for steady pace). Do not write full paragraphs of feedback in Japanese.
   </strict_execution_rules>
 
