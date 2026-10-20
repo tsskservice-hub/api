@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版・writingSection対応）
  */
 
 import { Hono } from 'hono';
@@ -172,7 +172,7 @@ app.post('/api/sync-knowledge', async (c) => {
 // スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
-  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion'];
+  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
   return c.json({ appType, fields });
 });
 
@@ -216,7 +216,7 @@ app.post('/chat', async (c) => {
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
       assignedQuestion?: string;
-      questionImageBase64?: string;       // 💡 単一の問題の写真（互換性用）
+      questionImageBase64?: string;        // 💡 単一の問題の写真（互換性用）
       questionImagesBase64?: string[];    // 💡 複数の問題の写真（OCR用）配列対応
       learningPace?: string;
       userNickname?: string;
@@ -233,16 +233,18 @@ app.post('/chat', async (c) => {
       selectedTextType?: string;
       studentEssay?: string;
       exactCharacterCount?: number;
+      writingSection?: "section2b" | "section3" | "other"; // 💡 VCE Writing セクション選択の受取対応
       timeZone?: string;
       cityName?: string;
       systemPrompt?: string; // 💡 フロントからのカスタムプロンプト受け取り対応
-  }>();
+    }>();
 
     const effectiveUserId = body.userId || "test-guest-user";
 
     console.log("📥 Received /chat request:", {
       userId: effectiveUserId,
       appType: body.appType,
+      writingSection: body.writingSection,
       messageLength: body.message?.length,
       hasAnswerImage: Boolean(body.imageBase64),
       questionImagesCount: body.questionImagesBase64?.length || (body.questionImageBase64 ? 1 : 0),
@@ -324,6 +326,7 @@ app.post('/chat', async (c) => {
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
+      writingSection: body.writingSection || "section2b", // 💡 writingSection を確実に渡す
       hasFiles: Boolean(body.imageBase64 || hasAnyQuestionImages),
       assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : ""), // 💡 画像が添付されている場合は自動補完
       timeZone: body.timeZone,
