@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・ assignedQuestion 確実連動・eoy-writing-custom 統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版）
  */
 
 import { Hono } from 'hono';
@@ -208,7 +208,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（カスタム問題 assignedQuestion 確実反映版）
+// チャット送信用エンドポイント: POST /chat（複数問題画像・カスタム問題 assignedQuestion 確実反映版）
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -216,7 +216,8 @@ app.post('/chat', async (c) => {
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
       assignedQuestion?: string;
-      questionImageBase64?: string; // 💡 問題の写真対応
+      questionImageBase64?: string;       // 💡 単一の問題の写真（互換性用）
+      questionImagesBase64?: string[];    // 💡 複数の問題の写真（OCR用）配列対応
       learningPace?: string;
       userNickname?: string;
       appType?: string;
@@ -235,7 +236,7 @@ app.post('/chat', async (c) => {
       timeZone?: string;
       cityName?: string;
       systemPrompt?: string; // 💡 フロントからのカスタムプロンプト受け取り対応
-    }>();
+  }>();
 
     const effectiveUserId = body.userId || "test-guest-user";
 
@@ -244,14 +245,16 @@ app.post('/chat', async (c) => {
       appType: body.appType,
       messageLength: body.message?.length,
       hasAnswerImage: Boolean(body.imageBase64),
-      hasQuestionImage: Boolean(body.questionImageBase64),
+      questionImagesCount: body.questionImagesBase64?.length || (body.questionImageBase64 ? 1 : 0),
       assignedQuestion: body.assignedQuestion
     });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
 
-    if (!userMessage && !body.imageBase64 && !body.questionImageBase64) {
+    const hasAnyQuestionImages = Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) || Boolean(body.questionImageBase64);
+
+    if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
       return c.json({ error: 'Message or image is required' }, 400);
     }
 
@@ -321,8 +324,8 @@ app.post('/chat', async (c) => {
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay,
       exactCharacterCount: body.exactCharacterCount,
-      hasFiles: Boolean(body.imageBase64 || body.questionImageBase64),
-      assignedQuestion: body.assignedQuestion || "", // 💡 カスタム問題・選択された問題テキストを確実に渡す
+      hasFiles: Boolean(body.imageBase64 || hasAnyQuestionImages),
+      assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : ""), // 💡 画像が添付されている場合は自動補完
       timeZone: body.timeZone,
       cityName: body.cityName,
     };
@@ -354,7 +357,7 @@ app.post('/chat', async (c) => {
         break;
       case "eoy-writing-custom":
       case "custom":
-        // 💡 新しく作成した eoy-writing-custom.ts の関数を確実に呼び出すように修正！
+        // 💡 新しく作成した eoy-writing-custom.ts の関数を確実に呼び出す
         systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
         break;
       case "oral-exam-questions":
@@ -371,11 +374,25 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 💡 マルチモーダル対応（問題の写真と答案の写真の両方に対応）
+    // 💡 マルチモーダル対応（複数の問題写真と答案の写真の両方に対応）
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
-    // 1. 問題の写真がある場合
-    if (body.questionImageBase64) {
+    // 1. 複数の問題の写真がある場合 (questionImagesBase64)
+    if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
+      for (const qImg of body.questionImagesBase64) {
+        const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
+        if (qMatches && qMatches.length === 3) {
+          userParts.push({
+            inline_data: {
+              mime_type: qMatches[1],
+              data: qMatches[2]
+            }
+          });
+        }
+      }
+    } 
+    // 互換用: 単一の問題の写真がある場合 (questionImageBase64)
+    else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
         userParts.push({
@@ -387,7 +404,7 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // 2. 答案の写真がある場合
+    // 2. 答案の写真がある場合 (imageBase64)
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
