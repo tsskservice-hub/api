@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description VCE筆記試験 セクション2 Part B 専用 Custom EOY Writing Practice ヤマト専用プロンプト生成関数（kanji-list.json連動・VCE漢字限定・300字厳守版）
+ * @description VCE筆記試験 3セクション対応 Custom EOY Writing Practice ヤマト専用プロンプト生成関数（kanji-list.json連動・セクション別文字数基準版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 同期済みナレッジ（kanji-list.json等）をインポート
@@ -12,15 +12,25 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   studentEssay?: string;
   hasFiles?: boolean;
   assignedQuestion?: string;
+  writingSection?: "section2b" | "section3" | "other";
   timeZone?: string;
   cityName?: string;
 }
 
 /**
- * 💡 画像および問題テキストから高精度にOCRを行い、VCEセクション2 Part B（300字制限）に特化したヘッダーを出力させる指示ルール
+ * 💡 画像および問題テキストから高精度にOCRを行い、選択されたセクション（Section 2 Part B / Section 3 / Other）に応じたヘッダーを出力させる指示ルール
  */
-function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
+function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string, writingSection: string = "section2b"): string {
   const safeAssigned = assignedQuestion || "None provided";
+
+  let charLimitGuidance = "";
+  if (writingSection === "section3") {
+    charLimitGuidance = "Note that Section 3 requires at least 400 characters (400字以上は必ず書くべき), and the upper limit should be slightly over 500 characters (上限は500字を少し上回るぐらいまでがよい).";
+  } else if (writingSection === "section2b") {
+    charLimitGuidance = "Note that Section 2 Part B has a strict limit of 300 characters (genko yoshi grid). Writing more than 300 characters is not recommended or possible on the actual exam paper.";
+  } else {
+    charLimitGuidance = "Evaluate based on general writing length and appropriateness.";
+  }
 
   return `
 <CRITICAL_VISION_HANDLING_RULES>
@@ -28,24 +38,33 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   - ABSOLUTE PRIORITY OVERRIDE: 
     1. If question images are attached or provided, you MUST carefully read and transcribe the exam question or prompt directly from the uploaded question images. Output this concrete transcribed question as the [Task you worked on]. Do NOT output generic placeholder text like "External Question Images Attached".
     2. Read and transcribe the student's handwritten response directly from the answer image with high accuracy, removing any raw newline control codes (such as '\\n') and formatting it cleanly into readable lines.
-    3. Count the exact number of characters from the transcribed student response (excluding raw control codes). Note that Section 2 Part B has a strict limit of 300 characters (genko yoshi grid). Writing more than 300 characters is not recommended or possible on the actual exam paper.
+    3. Count the exact number of characters from the transcribed student response (excluding raw control codes). ${charLimitGuidance}
     4. Begin your response strictly with the following structured header items:
        [Task you worked on] : "<Insert exact transcribed question/prompt here>"
        [What to write] : 
-         * Address the specific prompt requirements of the transcribed question accurately within the 300-character limit.
-         * Keep expressions concise and punchy, as Section 2 Part B provides a fixed 300-character genko yoshi grid (do not exceed 300 characters).
-         * Ensure all required information from the stimulus text(s) is clearly and efficiently covered.
+         * Address the specific prompt requirements of the transcribed question accurately.
+         * Keep expressions appropriate for ${writingSection === 'section3' ? 'Section 3 (400-500+ characters)' : writingSection === 'section2b' ? 'Section 2 Part B (strict 300 characters)' : 'general writing'}.
+         * Ensure all required information is clearly and efficiently covered.
        [Transcribed Text (What you wrote)] : "<Insert your direct transcription of the student's response, formatted cleanly without raw newline codes>"
-       [Character Count] : <Insert exact character count> / 300 characters (Advise the student if they are close to or exceeding the 300-character limit)
+       [Character Count] : <Insert exact character count> (${writingSection === 'section3' ? 'Target: 400 - 500+ characters' : writingSection === 'section2b' ? 'Max: 300 characters' : 'General length'})
 </CRITICAL_VISION_HANDLING_RULES>
   `.trim();
 }
 
 /**
- * 3つの学習ペースに対応した厳格な出力フォーマット定義（VCE Section 2 Part B 300字・VCE漢字限定仕様）
+ * 3つの学習ペースに対応した厳格な出力フォーマット定義（セクション別文字数基準・VCE漢字限定仕様）
  */
-function getPaceModuleInstruction(pace?: string, characterCount: number = 0): string {
+function getPaceModuleInstruction(pace?: string, characterCount: number = 0, writingSection: string = "section2b"): string {
   const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
+
+  let charCheckDesc = "";
+  if (writingSection === "section3") {
+    charCheckDesc = `Check characters: ${characterCount} / Target: 400 - 500+ characters. Remind them that Section 3 requires at least 400 characters, and the upper limit should be slightly over 500 characters.`;
+  } else if (writingSection === "section2b") {
+    charCheckDesc = `Check characters: ${characterCount} / 300 max limit. Remind them that writing over 300 characters is not recommended/possible in Section 2 Part B.`;
+  } else {
+    charCheckDesc = `Check characters: ${characterCount} characters.`;
+  }
 
   if (activePace.includes("accelerated")) {
     return `
@@ -57,7 +76,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
-  📊 [Character Count Check] (Check characters: ${characterCount} / 300 max limit. Remind them that writing over 300 characters is not recommended/possible in Section 2 Part B)
+  📊 [Character Count Check] (${charCheckDesc})
   🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English, ensuring any Japanese examples use VCE-approved kanji.)
   🧩 2. Discourse & Cohesion Analysis (Analyse logical flow and transition words in English.)
   ✍ 3. Academic/Formal Register Refinement (Elevate expression within tight space.)
@@ -77,7 +96,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 - STRICT OUTPUT RULE: You MUST output ONLY the 5 sections listed below using exact headers (immediately following the mandatory header items above). Keep it simple and cheerful (max 3 lines per section). Do not add introductory greetings.
 - Required Output Structure:
   🟡 [VCE-Aligned Estimation Band]
-  📝 [Character Count Check] (Characters: ${characterCount} / 300 max limit. Keep it under 300!)
+  📝 [Character Count Check] (${charCheckDesc})
   🌟 [One-Point Correction]
   💖 [Teacher's Simple Hint]
   💪 [Next Step]
@@ -94,7 +113,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🟢 [VCE-Aligned Estimation Band]
-  📊 [Character Count Check] (Characters: ${characterCount} / 300 max limit. Advise staying strictly within 300 characters)
+  📊 [Character Count Check] (${charCheckDesc})
   🔍 [Key Corrections & Areas for Improvement]
   📖 [Grammar Refinement]
   💡 [Teacher's One-Point Hint]
@@ -109,6 +128,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     studentEssay = "", 
     hasFiles = false,
     assignedQuestion = "",
+    writingSection = "section2b",
     ...baseOptions 
   } = options;
 
@@ -123,23 +143,27 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   const calculatedCharCount = Array.from(rawText.replace(/[\s\n\r]/g, "")).length;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : (calculatedCharCount > 0 ? calculatedCharCount : rawText.length);
 
-  const paceInstructionText = getPaceModuleInstruction(pace, charCount);
-  const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
+  const paceInstructionText = getPaceModuleInstruction(pace, charCount, writingSection);
+  const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion, writingSection);
   const safeAssigned = assignedQuestion || "None provided";
+
+  let sectionTitle = "Section 2 Part B";
+  if (writingSection === "section3") sectionTitle = "Section 3 (400-500+ characters)";
+  else if (writingSection === "other") sectionTitle = "Other Writing";
 
   const customContext = `
 <system_context>
   ${visionHandlingText}
 
   <identity>
-    - Tutor's Name: "EOY Writing Custom Practice Yamato (Section 2 Part B)" (カスタムEOYライティング練習ヤマト セクション2 Part B専用).
-    - Role: An expert VCE Japanese examination writing coach and examiner mentor specializing in Section 2 Part B tasks (strict 300-character genko yoshi limit and strict adherence to kanji-list.json criteria ${kanjiInfoText}).
+    - Tutor's Name: "EOY Writing Custom Practice Yamato (${sectionTitle})" (カスタムEOYライティング練習ヤマト ${sectionTitle}専用).
+    - Role: An expert VCE Japanese examination writing coach and examiner mentor specializing in ${sectionTitle} tasks (strict kanji-list.json criteria ${kanjiInfoText}).
   </identity>
 
   <student_submission_data>
     - [Task you worked on]: "${safeAssigned}"
     - [Transcribed Text (What you wrote) / Student Answer]: "${rawText || (hasFiles ? "Please read and transcribe the attached student answer image cleanly without raw newline control codes." : "No text provided yet.")}"
-    - [Character Count]: ${charCount} / 300 characters
+    - [Character Count]: ${charCount} ${writingSection === 'section3' ? '/ Target: 400 - 500+ characters' : writingSection === 'section2b' ? '/ 300 characters max' : 'characters'}
   </student_submission_data>
 
   <strict_execution_rules>
@@ -147,10 +171,10 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
        [Task you worked on] : "${safeAssigned}"
        [What to write] : 
          * Address the specific prompt requirements of the task accurately.
-         * Keep expressions concise and efficient to fit strictly within the 300-character genko yoshi grid. Advise the student that writing over 300 characters is not recommended or possible.
+         * Keep expressions appropriate for ${writingSection === 'section3' ? 'Section 3 (at least 400 characters, upper limit slightly over 500 characters)' : writingSection === 'section2b' ? 'Section 2 Part B (strict 300-character limit)' : 'general writing'}.
          * Clearly develop ideas relevant to the brought question.
        [Transcribed Text (What you wrote)] : "${rawText || (hasFiles ? "(Transcribed from attached image cleanly)" : "No text provided yet.")}"
-       [Character Count] : ${charCount} / 300 characters
+       [Character Count] : ${charCount} ${writingSection === 'section3' ? '(Target: 400 - 500+ characters)' : writingSection === 'section2b' ? '/ 300 characters max' : 'characters'}
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
     3. ABSOLUTE LANGUAGE OVERRIDE: Regardless of the student's input or the chosen pace persona, ALL critiques, bands, corrections, and hints must be written strictly in English (using simple English for steady pace). Do not write full paragraphs of feedback in Japanese.
