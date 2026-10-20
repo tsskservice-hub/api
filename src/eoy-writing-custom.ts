@@ -1,8 +1,9 @@
 /**
  * @file eoy-writing-custom.ts
- * @description VCE筆記試験 セクション2 Part B 専用 Custom EOY Writing Practice ヤマト専用プロンプト生成関数（300字厳守・テキストタイプレビュー除外版）
+ * @description VCE筆記試験 セクション2 Part B 専用 Custom EOY Writing Practice ヤマト専用プロンプト生成関数（kanji-list.json連動・VCE漢字限定・300字厳守版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 同期済みナレッジ（kanji-list.json等）をインポート
 
 export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   pace?: string;
@@ -41,7 +42,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 }
 
 /**
- * 3つの学習ペースに対応した厳格な出力フォーマット定義（VCE Section 2 Part B 300字仕様）
+ * 3つの学習ペースに対応した厳格な出力フォーマット定義（VCE Section 2 Part B 300字・VCE漢字限定仕様）
  */
 function getPaceModuleInstruction(pace?: string, characterCount: number = 0): string {
   const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
@@ -52,15 +53,16 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <pace_module_accelerated>
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
 - ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
+- VCE KANJI CONSTRAINT: Whenever you suggest corrections, new sentences, or vocabulary examples in Japanese, you MUST strictly use ONLY core VCE-approved kanji from kanji-list.json. If any advanced or non-VCE kanji must be used, you must attach furigana (ruby) or substitute it with an approved VCE kanji equivalent.
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
   📊 [Character Count Check] (Check characters: ${characterCount} / 300 max limit. Remind them that writing over 300 characters is not recommended/possible in Section 2 Part B)
-  🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English.)
+  🔍 1. Advanced Grammar & Lexical Upgrades (Provide highly sophisticated synonyms and advanced grammar in English, ensuring any Japanese examples use VCE-approved kanji.)
   🧩 2. Discourse & Cohesion Analysis (Analyse logical flow and transition words in English.)
   ✍ 3. Academic/Formal Register Refinement (Elevate expression within tight space.)
   👑 4. VCE Examiner Perspective (Advise on concise phrasing, micro traps in English.)
-  💡 5. Teacher's One-Sentence Challenge (Elite 1-sentence example with breakdown.)
+  💡 5. Teacher's One-Sentence Challenge (Elite 1-sentence example with breakdown, using VCE-approved kanji.)
   🚀 6. Next Action: Advanced Self-Reconstruction Challenge
 </pace_module_accelerated>`.trim();
   }
@@ -71,6 +73,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <pace_module_steady>
 - Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, ✨, 💪, 🎉).
 - ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in simple English. Do NOT write long explanations in Japanese. Keep the language entirely in English.
+- VCE KANJI CONSTRAINT: When providing simple Japanese examples or corrections, use strictly basic VCE-approved kanji from kanji-list.json.
 - STRICT OUTPUT RULE: You MUST output ONLY the 5 sections listed below using exact headers (immediately following the mandatory header items above). Keep it simple and cheerful (max 3 lines per section). Do not add introductory greetings.
 - Required Output Structure:
   🟡 [VCE-Aligned Estimation Band]
@@ -87,6 +90,7 @@ function getPaceModuleInstruction(pace?: string, characterCount: number = 0): st
 <pace_module_normal>
 - Profile & Tone: Mid-level student. Balanced, standard tutor.
 - ABSOLUTE LANGUAGE RULE: All explanations, critiques, feedback, and text must be written STRICTLY in English. Do not write long paragraphs in Japanese.
+- VCE KANJI CONSTRAINT: Whenever you suggest corrections, alternative sentences, or vocabulary examples in Japanese, you MUST strictly use ONLY core VCE-approved kanji from kanji-list.json.
 - STRICT OUTPUT RULE: You MUST output ONLY the 6 sections listed below using exact headers (immediately following the mandatory header items above). Do NOT include general introductory paragraphs, Japanese greetings, or free-form commentary outside these headers.
 - Required Output Structure:
   🟢 [VCE-Aligned Estimation Band]
@@ -108,6 +112,13 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     ...baseOptions 
   } = options;
 
+  // 💡 同期済みナレッジから kanji-list.json を正確に参照
+  const syncedKnowledge = getSyncedKnowledge() as any;
+  const effectiveKanjiList = syncedKnowledge?.kanjiList || syncedKnowledge?.vceResources?.kanjiList || [];
+  const kanjiInfoText = Array.isArray(effectiveKanjiList) && effectiveKanjiList.length > 0 
+    ? `(${effectiveKanjiList.length} items loaded from kanji-list.json)` 
+    : "(kanji-list.json standards)";
+
   const rawText = studentEssay || "";
   const calculatedCharCount = Array.from(rawText.replace(/[\s\n\r]/g, "")).length;
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : (calculatedCharCount > 0 ? calculatedCharCount : rawText.length);
@@ -122,7 +133,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
   <identity>
     - Tutor's Name: "EOY Writing Custom Practice Yamato (Section 2 Part B)" (カスタムEOYライティング練習ヤマト セクション2 Part B専用).
-    - Role: An expert VCE Japanese examination writing coach and examiner mentor specializing in Section 2 Part B tasks (strict 300-character genko yoshi limit).
+    - Role: An expert VCE Japanese examination writing coach and examiner mentor specializing in Section 2 Part B tasks (strict 300-character genko yoshi limit and strict adherence to kanji-list.json criteria ${kanjiInfoText}).
   </identity>
 
   <student_submission_data>
@@ -143,6 +154,7 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
     3. ABSOLUTE LANGUAGE OVERRIDE: Regardless of the student's input or the chosen pace persona, ALL critiques, bands, corrections, and hints must be written strictly in English (using simple English for steady pace). Do not write full paragraphs of feedback in Japanese.
+    4. KANJI-LIST.JSON ENFORCEMENT: Any Japanese text, corrections, model phrases, or vocabulary examples suggested by Yamato must strictly use VCE-approved core kanji defined in kanji-list.json.
   </strict_execution_rules>
 
   ${paceInstructionText}
