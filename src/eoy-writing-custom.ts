@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（問題・答案両方OCR & 改行整形・具体化対応版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（Task you worked on & テキストタイプ・スタイル指定型 What to write 完全版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
@@ -16,7 +16,7 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
 }
 
 /**
- * 💡 問題および答案の画像から高精度に文字起こし（OCR）を行い、改行を自然に整形させる指示ルール
+ * 💡 画像および問題テキストから高精度にOCRを行い、指定のヘッダーフォーマットで出力させる指示ルール
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   const safeAssigned = assignedQuestion || "None provided";
@@ -25,17 +25,16 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 <CRITICAL_VISION_HANDLING_RULES>
   - TRIGGER CONDITION: Question and/or student answer images are uploaded (hasFiles: ${hasFiles}).
   - ABSOLUTE PRIORITY OVERRIDE: 
-    1. If question images are attached or provided, you MUST carefully read and transcribe the exam question or prompt directly from the uploaded question images. Output this concrete transcribed question as the [Assigned Question] and [Task you worked on]. Do NOT output generic placeholder text like "External Question Images Attached".
+    1. If question images are attached or provided, you MUST carefully read and transcribe the exam question or prompt directly from the uploaded question images. Output this concrete transcribed question as the [Task you worked on]. Do NOT output generic placeholder text like "External Question Images Attached".
     2. Read and transcribe the student's handwritten response directly from the answer image with high accuracy, removing any raw newline control codes (such as '\\n') and formatting it cleanly into readable paragraphs or lines.
     3. Count the exact number of characters from the transcribed student response (excluding raw control codes).
-    4. Begin your response strictly with the following structured header items:
-       [Assigned Question] : "<Insert exact transcribed question/prompt here>"
+    4. Begin your response strictly with the following structured header items (omitting Assigned Question, renaming Transcribed Text):
        [Task you worked on] : "<Insert exact transcribed question/prompt here>"
        [What to write] : 
-         * Address the specific prompt requirements of the transcribed question accurately.
-         * Present a coherent and appropriate text structure matching the required text type/topic.
-         * Clearly develop ideas and arguments relevant to the brought question.
-       [Transcribed Text] : "<Insert your direct transcription of the student's response, formatted cleanly without raw newline codes>"
+         * Text Type & Format: Blog post / Personal recount / Informative text (requiring a clear title, friendly greeting, engaging body paragraphs, and a welcoming closing).
+         * Writing Style & Tone: Persuasive, encouraging, and personal (written from the perspective of an exchange student in Japan addressing classmates).
+         * Core Content Requirements: Explain the study/exchange programme details using Text 4 information, explain why you want to join, and strongly encourage your Japanese class friends to apply together.
+       [Transcribed Text (What you wrote)] : "<Insert your direct transcription of the student's response, formatted cleanly without raw newline codes>"
        [Character Count] : <Insert exact character count> characters
 </CRITICAL_VISION_HANDLING_RULES>
   `.trim();
@@ -127,21 +126,19 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   </identity>
 
   <student_submission_data>
-    - [Assigned Question]: "${safeAssigned}"
     - [Task you worked on]: "${safeAssigned}"
-    - [Transcribed Text / Student Answer]: "${rawText || (hasFiles ? "Please read and transcribe the attached student answer image cleanly without raw newline control codes." : "No text provided yet.")}"
+    - [Transcribed Text (What you wrote) / Student Answer]: "${rawText || (hasFiles ? "Please read and transcribe the attached student answer image cleanly without raw newline control codes." : "No text provided yet.")}"
     - [Character Count]: ${charCount} characters
   </student_submission_data>
 
   <strict_execution_rules>
     1. MANDATORY START: You MUST begin your response by outputting the following header items first in exact order (ensuring any transcribed text is cleanly formatted without raw '\\n' strings):
-       [Assigned Question] : "${safeAssigned}"
        [Task you worked on] : "${safeAssigned}"
        [What to write] : 
-         * Address the specific prompt requirements of the task accurately.
-         * Present a coherent and appropriate text structure matching the required text type/topic.
-         * Clearly develop ideas and arguments relevant to the brought question.
-       [Transcribed Text] : "${rawText || (hasFiles ? "(Transcribed from attached image cleanly)" : "No text provided yet.")}"
+         * Text Type & Format: Blog post / Personal recount / Informative text (requiring a clear title, friendly greeting, engaging body paragraphs, and a welcoming closing).
+         * Writing Style & Tone: Persuasive, encouraging, and personal (written from the perspective of an exchange student in Japan addressing classmates).
+         * Core Content Requirements: Explain the study/exchange programme details using Text 4 information, explain why you want to join, and strongly encourage your Japanese class friends to apply together.
+       [Transcribed Text (What you wrote)] : "${rawText || (hasFiles ? "(Transcribed from attached image cleanly)" : "No text provided yet.")}"
        [Character Count] : ${charCount} characters
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
