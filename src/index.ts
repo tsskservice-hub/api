@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版・writingSection対応）
+ * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版・writingSection ＆ 直書き対応）
  */
 
 import { Hono } from 'hono';
@@ -324,11 +324,11 @@ app.post('/chat', async (c) => {
       currentTurn: history.length + 1,
       pace: body.learningPace || body.pace,
       selectedTextType: body.selectedTextType,
-      studentEssay: body.studentEssay,
+      studentEssay: body.studentEssay || userMessage, // 💡 直書きテキストも答案として確実に渡す
       exactCharacterCount: body.exactCharacterCount,
       writingSection: body.writingSection || "section2b", // 💡 writingSection を確実に渡す
       hasFiles: Boolean(body.imageBase64 || hasAnyQuestionImages),
-      assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : ""), // 💡 画像が添付されている場合は自動補完
+      assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : userMessage), // 💡 直書きテキストも問題文/タスクとして柔軟にフォールバック
       timeZone: body.timeZone,
       cityName: body.cityName,
     };
