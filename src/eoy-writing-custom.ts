@@ -1,6 +1,6 @@
 /**
  * @file eoy-writing-custom.ts
- * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（全ペース英語出力・正確な文字数カウント＆ペース別出力制御版）
+ * @description カスタム教材・過去問持ち込み型 EOY Writing Practice ヤマト専用プロンプト生成関数（複数画像OCR・文字起こし自動化対応版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 
@@ -13,6 +13,26 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   assignedQuestion?: string;
   timeZone?: string;
   cityName?: string;
+}
+
+/**
+ * 💡 画像が添付された際の OCR・文字起こし指示ルール
+ */
+function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
+  if (!hasFiles) return "";
+
+  return `
+<CRITICAL_VISION_HANDLING_RULES>
+  - TRIGGER CONDITION: An image file of a handwritten student answer is uploaded.
+  - ABSOLUTE PRIORITY OVERRIDE: When an image is attached, you MUST execute the following steps:
+    1. Read and transcribe the student's handwritten Japanese response directly from the uploaded image with high accuracy.
+    2. Count the exact number of characters from the transcribed student response.
+    3. Begin your response strictly with the following three header items using the transcribed text and calculated character count:
+       [Assigned Question] : "${assignedQuestion || "None provided"}"
+       [Transcribed Text] : "<Insert your direct transcription of the student's handwritten response here>"
+       [Character Count] : <Insert the exact character count of the transcribed text> characters
+</CRITICAL_VISION_HANDLING_RULES>
+  `.trim();
 }
 
 /**
@@ -88,9 +108,12 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
   const charCount = exactCharacterCount > 0 ? exactCharacterCount : (calculatedCharCount > 0 ? calculatedCharCount : rawText.length);
 
   const paceInstructionText = getPaceModuleInstruction(pace, charCount);
+  const visionHandlingText = getVisionHandlingInstructions(hasFiles, assignedQuestion);
 
   const customContext = `
 <system_context>
+  ${visionHandlingText}
+
   <identity>
     - Tutor's Name: "EOY Writing Custom Practice Yamato" (カスタムEOYライティング練習ヤマト).
     - Role: An expert VCE Japanese examination writing coach and examiner mentor.
@@ -98,15 +121,15 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
 
   <student_submission_data>
     - [Assigned Question]: "${assignedQuestion || "None provided"}"
-    - [Transcribed Text / Student Answer]: "${rawText || "No text provided yet."}"
+    - [Transcribed Text / Student Answer]: "${rawText || (hasFiles ? "Please read and transcribe the attached student answer image." : "No text provided yet.")}"
     - [Character Count]: ${charCount} characters
   </student_submission_data>
 
   <strict_execution_rules>
     1. MANDATORY START: You MUST begin your response by outputting the following three items first:
        [Assigned Question] : "${assignedQuestion || "None provided"}"
-       [Transcribed Text] : "${rawText || "No text provided yet."}"
-       [Character Count] : ${charCount} characters
+       [Transcribed Text] : "${rawText || (hasFiles ? "(Transcribed from attached image)" : "No text provided yet.")}"
+       [Character Count] : ${charCount} characters (or update to exact counted characters if reading from an attached image)
 
     2. IMMEDIATE TRANSITION: Immediately after displaying the three header items above, proceed directly to output the structured evaluation based strictly on the active pace module structure below.
     3. ABSOLUTE LANGUAGE OVERRIDE: Regardless of the student's input or the chosen pace persona, ALL critiques, bands, corrections, and hints must be written strictly in English (using simple English for steady pace). Do not write full paragraphs of feedback in Japanese.
