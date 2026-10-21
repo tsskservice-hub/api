@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（Cloudflare KV 同期ナレッジ・クレジット控除堅牢化版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（Visual Aid連携・クレジット堅牢化・gemini-3.1-flash-lite-image対応版）
  */
 
 import { Hono } from 'hono';
@@ -15,7 +15,7 @@ import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
-// 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポートを有効化
+// 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポート
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 
 // 💡 画像生成サービスのインポート
@@ -31,7 +31,7 @@ import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules'
 // 💡 yamato-portal から同期されたナレッジデータを Cloudflare KV 経由で管理するモジュールのインポート
 import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
-// 環境変数の型定義（Cloudflare KV のバインド YAMATO_KNOWLEDGE を追加）
+// 環境変数の型定義
 type Bindings = {
   VERTEX_AI_KEY?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
@@ -42,7 +42,7 @@ type Bindings = {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   SYNC_API_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
-  YAMATO_KNOWLEDGE: KVNamespace; // 💡 Cloudflare KV の型定義
+  YAMATO_KNOWLEDGE: KVNamespace;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -88,7 +88,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const clientEmail = sa.client_email;
 
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + 3600; // 有効期限 1時間
+  const exp = now + 3600;
 
   const header = { alg: "RS256", typ: "JWT" };
   const claimSet = {
@@ -145,7 +145,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// 💡 yamato-portal 側から教育データ・ナレッジを一括同期し、Cloudflare KVに保存するエンドポイント
+// ナレッジ同期エンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
@@ -157,8 +157,6 @@ app.post('/api/sync-knowledge', async (c) => {
 
   try {
     const body = await c.req.json<any>();
-    
-    // 💡 Cloudflare KV (YAMATO_KNOWLEDGE) への永続保存を実行
     await setSyncedKnowledge(body, c.env);
 
     return c.json({ 
@@ -172,43 +170,22 @@ app.post('/api/sync-knowledge', async (c) => {
   }
 });
 
-// スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
   return c.json({ appType, fields });
 });
 
-// 💡 FoundationLayout.ts の FOUNDATION_LAYOUT_META を丸ごと配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
-    apiCommon: {
-      fileName: "YamatoApiCommon.tsx",
-      layer: "窓口・外装",
-      role: "共通プロンプト構造や共通オプションを受け渡す基盤",
-    },
-    template: {
-      fileName: "a-template.ts",
-      layer: "乗組員 (ひな形)",
-      role: "FoundationLayout のデータが内包されている YamatoApiCommon.tsx をインポートしてペルソナを記述するひな形",
-    },
-    portalLayout: {
-      fileName: "PageLayout.tsx",
-      layer: "土台 (機体)",
-      role: "ポータル全体の共通レイアウト、ヘッダー/フッター、パスキー認証基盤",
-    },
-    chatCommon: {
-      fileName: "YamatoChatCommon.tsx",
-      layer: "窓口・外装",
-      role: "対話UIの汎用テンプレート・操縦士コックピット",
-    }
+    apiCommon: { fileName: "YamatoApiCommon.tsx", layer: "窓口・外装", role: "共通プロンプト構造" },
+    template: { fileName: "a-template.ts", layer: "乗組員", role: "ペルソナ記述ひな形" },
+    portalLayout: { fileName: "PageLayout.tsx", layer: "土台", role: "共通レイアウト・認証基盤" },
+    chatCommon: { fileName: "YamatoChatCommon.tsx", layer: "窓口", role: "対話UIウィジェット" }
   };
 
-  return c.json({
-    success: true,
-    metadata,
-  });
+  return c.json({ success: true, metadata });
 });
 
 // チャット送信用エンドポイント: POST /chat
@@ -220,7 +197,7 @@ app.post('/chat', async (c) => {
       history?: { role: string; content: string }[];
       assignedQuestion?: string;
       questionImageBase64?: string;        
-      questionImagesBase64?: string[];    
+      questionImagesBase64?: string[];     
       learningPace?: string;
       userNickname?: string;
       appType?: string;
@@ -247,16 +224,13 @@ app.post('/chat', async (c) => {
     console.log("📥 Received /chat request:", {
       userId: effectiveUserId,
       appType: body.appType,
-      writingSection: body.writingSection,
       messageLength: body.message?.length,
       hasAnswerImage: Boolean(body.imageBase64),
-      questionImagesCount: body.questionImagesBase64?.length || (body.questionImageBase64 ? 1 : 0),
-      assignedQuestion: body.assignedQuestion
+      requestVisualAid: body.requestVisualAid
     });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
-
     const hasAnyQuestionImages = Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) || Boolean(body.questionImageBase64);
 
     if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
@@ -272,7 +246,11 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    const requiredCredits = determineRequiredCreditsFromPayload(body);
+    // 💡 Visual Aid チェックがONの場合は強制的に 4 クレジット（imageAi）として計算・処理
+    const isVisualAidRequested = Boolean(body.requestVisualAid);
+    const baseRequiredCredits = determineRequiredCreditsFromPayload(body);
+    const requiredCredits = isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits;
+
     const featureKey: FeatureKey = requiredCredits >= 10 ? 'mockFull' 
       : requiredCredits === 6 ? 'mockSection1' 
       : requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate') ? 'voiceElaborate'
@@ -284,50 +262,40 @@ app.post('/chat', async (c) => {
 
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
-      if (supabaseAdmin) {
-        console.log("🔍 [Supabase] Admin client initialized successfully. Checking credits for user:", effectiveUserId, "Feature:", featureKey, "Required:", requiredCredits);
-        
-        if (effectiveUserId !== "test-guest-user") {
-          const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-          const { hasEnough, currentCredits } = creditCheck;
-          console.log("💳 [Supabase] Credit check result:", { hasEnough, currentCredits, requiredCredits });
+      if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
+        const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+        const { hasEnough, currentCredits } = creditCheck;
 
-          if (!hasEnough) {
-            if (currentCredits <= 0) {
-              return c.json({
-                error: "ZERO_CREDITS",
-                message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
-                reply: "Your credit balance is 0. Please top up your credits to continue learning.",
-                currentCredits,
-                requiredCredits
-              }, 402);
-            }
-
+        if (!hasEnough) {
+          if (currentCredits <= 0) {
             return c.json({
-              error: "PARTIAL_SHORTAGE",
-              message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
-              reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
+              error: "ZERO_CREDITS",
+              message: "クレジットがゼロです。学習を継続するにはクレジットの追加が必要です。",
+              reply: "Your credit balance is 0. Please top up your credits to continue learning.",
               currentCredits,
               requiredCredits
             }, 402);
           }
-        } else {
-          console.warn("⚠️ [Supabase] effectiveUserId is 'test-guest-user'. Skipping credit validation & deduction.");
+
+          return c.json({
+            error: "PARTIAL_SHORTAGE",
+            message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
+            reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
+            currentCredits,
+            requiredCredits
+          }, 402);
         }
-      } else {
-        console.warn("⚠️ [Supabase] getSupabaseAdmin returned null or undefined.");
       }
     } catch (dbErr: any) {
-      console.error("❌ [Supabase] Database check exception caught:", dbErr.message, dbErr.stack);
+      console.error("❌ [Supabase] Database check exception caught:", dbErr.message);
     }
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 💡 システム指示の構築（Cloudflare KV から非同期で同期ナレッジを取得）
+    // システム指示の構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
-
     const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
     const promptOptions: any = {
@@ -348,10 +316,7 @@ app.post('/chat', async (c) => {
 
     switch (appType) {
       case "concierge":
-        systemInstructionText = await buildConciergePrompt({
-          ...promptOptions,
-          env: c.env,
-        });
+        systemInstructionText = await buildConciergePrompt(promptOptions);
         break;
       case "game-igo":
         systemInstructionText = await buildGameIgoPrompt(promptOptions);
@@ -392,42 +357,27 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 💡 マルチモーダル対応
+    // マルチモーダル対応
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (qMatches && qMatches.length === 3) {
-          userParts.push({
-            inline_data: {
-              mime_type: qMatches[1],
-              data: qMatches[2]
-            }
-          });
+          userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
         }
       }
     } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
-        userParts.push({
-          inline_data: {
-            mime_type: qMatches[1],
-            data: qMatches[2]
-          }
-        });
+        userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
       }
     }
 
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
-        userParts.push({
-          inline_data: {
-            mime_type: aMatches[1],
-            data: aMatches[2]
-          }
-        });
+        userParts.push({ inline_data: { mime_type: aMatches[1], data: aMatches[2] } });
       }
     }
 
@@ -436,10 +386,7 @@ app.post('/chat', async (c) => {
         role: h.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: h.content }]
       })),
-      {
-        role: 'user',
-        parts: userParts
-      }
+      { role: 'user', parts: userParts }
     ];
 
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
@@ -451,9 +398,7 @@ app.post('/chat', async (c) => {
         'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemInstructionText }]
-        },
+        systemInstruction: { parts: [{ text: systemInstructionText }] },
         contents
       })
     });
@@ -467,16 +412,18 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
+    // 💡 Visual Aid (画像生成) の実行処理
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
-    const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt || requiredCredits === 4);
+    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4);
 
-    if (!promptToUse && shouldGenerateImage && requiredCredits === 4) {
+    if (!promptToUse && shouldGenerateImage) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
     }
 
     if (promptToUse) {
       try {
+        console.log("🎨 [Backend] Generating visual aid with prompt:", promptToUse);
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
@@ -484,23 +431,21 @@ app.post('/chat', async (c) => {
         });
         if (base64Image) {
           imageUrl = `data:image/png;base64,${base64Image}`;
+          console.log("✨ [Backend] Visual aid generated successfully, length:", base64Image.length);
         }
       } catch (err: any) {
         console.error("❌ Image generation error in /chat:", err.message);
       }
     }
 
-    // 💡 クレジットの控除処理（確実な実行とログ出力）
+    // クレジット控除処理
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
-        console.log("💳 [Supabase] Deducting credits for user:", effectiveUserId, "Feature:", featureKey);
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-        console.log("✅ [Supabase] Credits deducted successfully.");
+        console.log("✅ [Supabase] Credits deducted successfully for feature:", featureKey);
       } catch (deductErr: any) {
-        console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message, deductErr.stack);
+        console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message);
       }
-    } else {
-      console.warn("⚠️ [Supabase] Credit deduction skipped. supabaseAdmin:", Boolean(supabaseAdmin), "effectiveUserId:", effectiveUserId);
     }
 
     return c.json({ 
@@ -509,7 +454,7 @@ app.post('/chat', async (c) => {
     });
 
   } catch (e: any) {
-    console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
+    console.error("❌ Unhandled exception in /chat:", e.message);
     return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
 });
