@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（カスタム問題・複数問題画像OCR 確実連動版・writingSection ＆ 直書き対応）
+ * @description HonoベースのCloudflare Workers用APIサーバー（Cloudflare KV 同期ナレッジ対応版）
  */
 
 import { Hono } from 'hono';
@@ -28,10 +28,10 @@ import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
 
-// 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
+// 💡 yamato-portal から同期されたナレッジデータを Cloudflare KV 経由で管理するモジュールのインポート
 import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
-// 環境変数の型定義（柔軟なキー名に対応）
+// 環境変数の型定義（Cloudflare KV のバインド YAMATO_KNOWLEDGE を追加）
 type Bindings = {
   VERTEX_AI_KEY?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
@@ -40,8 +40,9 @@ type Bindings = {
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  SYNC_API_KEY?: string; // 💡 ナレッジ同期用のAPIキー
-  AIYAMATO_SYSTEM_PROMPT?: string; // 💡 安全なオプショナル定義
+  SYNC_API_KEY?: string;
+  AIYAMATO_SYSTEM_PROMPT?: string;
+  YAMATO_KNOWLEDGE: KVNamespace; // 💡 Cloudflare KV の型定義
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -144,7 +145,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// 💡 yamato-portal 側から教育データ・ナレッジを一括同期するエンドポイント（認証チェック付き）
+// 💡 yamato-portal 側から教育データ・ナレッジを一括同期し、Cloudflare KVに保存するエンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
@@ -156,15 +157,17 @@ app.post('/api/sync-knowledge', async (c) => {
 
   try {
     const body = await c.req.json<any>();
-    setSyncedKnowledge(body);
+    
+    // 💡 Cloudflare KV (YAMATO_KNOWLEDGE) への永続保存を実行
+    await setSyncedKnowledge(body, c.env);
 
     return c.json({ 
       success: true, 
-      message: "Knowledge base synchronized successfully.",
+      message: "Knowledge base synchronized and saved to KV successfully.",
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {
-    console.error("❌ Failed to sync knowledge:", err.message);
+    console.error("❌ Failed to sync knowledge to KV:", err.message);
     return c.json({ success: false, error: err.message }, 500);
   }
 });
@@ -208,7 +211,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   });
 });
 
-// チャット送信用エンドポイント: POST /chat（複数問題画像・カスタム問題 assignedQuestion 確実反映版）
+// チャット送信用エンドポイント: POST /chat
 app.post('/chat', async (c) => {
   try {
     const body = await c.req.json<{ 
@@ -216,8 +219,8 @@ app.post('/chat', async (c) => {
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
       assignedQuestion?: string;
-      questionImageBase64?: string;        // 💡 単一の問題の写真（互換性用）
-      questionImagesBase64?: string[];    // 💡 複数の問題の写真（OCR用）配列対応
+      questionImageBase64?: string;        
+      questionImagesBase64?: string[];    
       learningPace?: string;
       userNickname?: string;
       appType?: string;
@@ -233,10 +236,10 @@ app.post('/chat', async (c) => {
       selectedTextType?: string;
       studentEssay?: string;
       exactCharacterCount?: number;
-      writingSection?: "section2b" | "section3" | "other"; // 💡 VCE Writing セクション選択の受取対応
+      writingSection?: "section2b" | "section3" | "other";
       timeZone?: string;
       cityName?: string;
-      systemPrompt?: string; // 💡 フロントからのカスタムプロンプト受け取り対応
+      systemPrompt?: string;
     }>();
 
     const effectiveUserId = body.userId || "test-guest-user";
@@ -311,10 +314,10 @@ app.post('/chat', async (c) => {
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 💡 システム指示の構築
+    // 💡 システム指示の構築（Cloudflare KV から非同期で同期ナレッジを取得）
     let systemInstructionText = "";
     const appType = body.appType || "general";
-    const syncedKnowledge = getSyncedKnowledge();
+    const syncedKnowledge = await getSyncedKnowledge(c.env);
 
     const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
@@ -324,18 +327,23 @@ app.post('/chat', async (c) => {
       currentTurn: history.length + 1,
       pace: body.learningPace || body.pace,
       selectedTextType: body.selectedTextType,
-      studentEssay: body.studentEssay || userMessage, // 💡 直書きテキストも答案として確実に渡す
+      studentEssay: body.studentEssay || userMessage,
       exactCharacterCount: body.exactCharacterCount,
-      writingSection: body.writingSection || "section2b", // 💡 writingSection を確実に渡す
+      writingSection: body.writingSection || "section2b",
       hasFiles: Boolean(body.imageBase64 || hasAnyQuestionImages),
-      assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : userMessage), // 💡 直書きテキストも問題文/タスクとして柔軟にフォールバック
+      assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : userMessage),
       timeZone: body.timeZone,
       cityName: body.cityName,
+      env: c.env, // 💡 必要に応じてオプション経由で env を渡す
     };
 
     switch (appType) {
       case "concierge":
-        systemInstructionText = await buildConciergePrompt(promptOptions);
+        // 💡 buildConciergePrompt に env を渡して KV から最新データを安全に取得
+        systemInstructionText = await buildConciergePrompt({
+          ...promptOptions,
+          env: c.env,
+        });
         break;
       case "game-igo":
         systemInstructionText = await buildGameIgoPrompt(promptOptions);
@@ -360,7 +368,6 @@ app.post('/chat', async (c) => {
         break;
       case "eoy-writing-custom":
       case "custom":
-        // 💡 新しく作成した eoy-writing-custom.ts の関数を確実に呼び出す
         systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
         break;
       case "oral-exam-questions":
@@ -377,10 +384,9 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // 💡 マルチモーダル対応（複数の問題写真と答案の写真の両方に対応）
+    // 💡 マルチモーダル対応
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
-    // 1. 複数の問題の写真がある場合 (questionImagesBase64)
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
@@ -393,9 +399,7 @@ app.post('/chat', async (c) => {
           });
         }
       }
-    } 
-    // 互換用: 単一の問題の写真がある場合 (questionImageBase64)
-    else if (body.questionImageBase64) {
+    } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
         userParts.push({
@@ -407,7 +411,6 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // 2. 答案の写真がある場合 (imageBase64)
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
