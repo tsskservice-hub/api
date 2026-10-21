@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・Visual Aid連携・クレジット堅牢化版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・詳細デバッグログ強化版）
  */
 
 import { Hono } from 'hono';
@@ -224,12 +224,13 @@ app.post('/chat', async (c) => {
 
     const effectiveUserId = body.userId || "test-guest-user";
 
-    console.log("📥 Received /chat request:", {
+    console.log("📥 [DEBUG Step 1] Received /chat request payload:", {
       userId: effectiveUserId,
       appType: body.appType,
       messageLength: body.message?.length,
       hasAnswerImage: Boolean(body.imageBase64),
-      requestVisualAid: body.requestVisualAid
+      requestVisualAid: body.requestVisualAid,
+      receivedVisualPrompt: body.visualPrompt
     });
 
     const userMessage = body.message;
@@ -418,10 +419,18 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 Visual Aid (画像生成) の実行処理（serviceAccountKey を明示的に渡す）
+    // 💡 [DEBUG Step 2] Visual Aid (画像生成) の実行判定と条件分岐のログ
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
-    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4);
+    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4 || appType === "image-explanation");
+
+    console.log("🔍 [DEBUG Step 2] Image Generation Check:", {
+      isVisualAidRequested,
+      hasVisualPromptInBody: Boolean(body.visualPrompt),
+      requiredCredits,
+      appType,
+      shouldGenerateImage
+    });
 
     if (!promptToUse && shouldGenerateImage) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
@@ -429,20 +438,25 @@ app.post('/chat', async (c) => {
 
     if (promptToUse) {
       try {
-        console.log("🎨 [Backend] Generating visual aid with prompt:", promptToUse);
+        console.log("🎨 [DEBUG Step 3] Calling generateVisualAid with prompt:", promptToUse);
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
           location: "global",
           serviceAccountKey: serviceAccountKey
         });
+
         if (base64Image) {
           imageUrl = `data:image/png;base64,${base64Image}`;
-          console.log("✨ [Backend] Visual aid generated successfully, length:", base64Image.length);
+          console.log("✨ [DEBUG Step 4] Visual aid generated successfully! Base64 length:", base64Image.length);
+        } else {
+          console.warn("⚠️ [DEBUG Step 4] generateVisualAid returned null or empty base64 string.");
         }
       } catch (err: any) {
-        console.error("❌ Image generation error in /chat:", err.message);
+        console.error("❌ [DEBUG ERROR Step 4] Image generation exception caught in /chat:", err.message, err.stack);
       }
+    } else {
+      console.log("ℹ️ [DEBUG] Skipped image generation because promptToUse is empty/falsy.");
     }
 
     // クレジット控除処理
@@ -455,13 +469,21 @@ app.post('/chat', async (c) => {
       }
     }
 
-    return c.json({ 
+    const finalResponsePayload = {
       reply: aiReply,
       imageUrl: imageUrl 
+    };
+
+    console.log("📤 [DEBUG Step 5] Sending final JSON response to client:", {
+      replyLength: finalResponsePayload.reply?.length,
+      hasImageUrl: Boolean(finalResponsePayload.imageUrl),
+      imageUrlPreview: finalResponsePayload.imageUrl ? finalResponsePayload.imageUrl.slice(0, 40) + "..." : "null"
     });
 
+    return c.json(finalResponsePayload);
+
   } catch (e: any) {
-    console.error("❌ Unhandled exception in /chat:", e.message);
+    console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
     return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
 });
