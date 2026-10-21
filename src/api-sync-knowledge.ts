@@ -9,6 +9,7 @@ let syncedPortalKnowledge: {
   legalContent?: any;
   pricePlans?: any;
   quizzes?: any;
+  portalContent?: any;
   vceResources?: {
     kanjiList?: any[];
     vceVocabularyList?: any[];

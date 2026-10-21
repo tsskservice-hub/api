@@ -37,10 +37,36 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
 
   const effectivePricePlans = syncedKnowledge.pricePlans || {};
   const effectiveFaqList = syncedKnowledge.faqList || [];
+  const portalContent = syncedKnowledge.portalContent || {}; // 💡 追加: ポータル全体仕様・LP・モジュールデータ
 
-  // クイズや法的コンテンツも同期ナレッジ、または標準のデフォルト値から安全に構築
+  // 💡 ポータルのモジュール一覧（Section 1 & Section 2）をテキスト化してAIに伝える
+  let portalModulesText = "";
+  if (portalContent.modulesSection) {
+    const sec1 = portalContent.modulesSection.section1;
+    const sec2 = portalContent.modulesSection.section2;
+
+    const formatModules = (sec: any) => {
+      if (!sec || !sec.modules) return "";
+      return sec.modules.map((m: any) => {
+        return `    - [${m.name}] (Category: ${m.category}, Path: ${m.path || 'N/A'}, Status: ${m.isComingSoon ? 'Coming Soon' : 'Available'})
+      Description: ${m.description}`;
+      }).join("\n");
+    };
+
+    portalModulesText = `
+    * ${sec1?.title || 'Section 1'}:
+${formatModules(sec1)}
+
+    * ${sec2?.title || 'Section 2'}:
+${formatModules(sec2)}
+    `;
+  } else {
+    portalModulesText = "    * General and VCE modules are available on the portal dashboard.";
+  }
+
+  // クイズや法的コンテンツのテキスト化
   const quizzesText = "  * Portal quizzes and interactive games (Mini Shogi, Go, vocabulary typing, Karuta).";
-  const todayQuizText = "  - Daily challenge and interactive quizzes available on the portal.";
+  const todayQuizText = "  - Daily challenge and interactive quizzes available on the portal (+2 credits, valid for 7 days).";
 
   // 料金プラン（effectivePricePlans）を正確にテキスト化してAIに伝える
   let pricingText = "";
@@ -60,17 +86,16 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
 
   // クレジット消費ガイドを定義
   const creditGuideText = `
-  - Text Chat (Q&A / Vocabulary): 1-2 credits / turn
-  - Essay / Genkoyoshi Correctors: 20-30 credits / session
-  - Oral Exam / Voice Roleplay: 15-25 credits / min
-  - Mini Games & Drills: Free / 0.5 credits`;
+  - Text Chat with Yamato-sensei: 2 credits / message (Requires login)
+  - Genkoyoshi Editor (General / VCE): Max 4 credits
+  - EOY Writing Exam Tutor / Custom Writing: Max 2 credits
+  - Daily Challenge Quiz: Free (Rewards +2 credits upon correct answer, valid for 7 days)`;
 
   // 法的・サポートデータ
   const legalContentText = `
-  - Terms of Service: Governing portal use and educational standards.
-  - Disclaimer: Educational use disclaimer.
-  - Privacy Policy: Supabase secure database storage and Passkey security.
-  - Contact & Support Email: support@jptutoraiyamato.com`;
+  - Terms of Service & Privacy Policy: Available on portal footer. Supabase secure database storage and Passkey authentication are used.
+  - Account Deletion: Can be managed via Account Settings / Profile page.
+  - Support Contact: support@jptutoraiyamato.com`;
 
   // コンシェルジュ特有の固有コンテキストを構築
   const CONCIERGE_SPECIFIC_CONTEXT = `
@@ -88,9 +113,11 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   </persona_tone>
 
   <portal_knowledge_base>
+    - Portal Pages & Learning Modules (CRITICAL: Use these exact module names, paths, and statuses when guiding users):
+${portalModulesText}
+
     - Interactive Quizzes & Mini-Games:
 ${quizzesText}
-      * Guide users playfully and warmly to these games to make learning enjoyable and stress-free.
 
     - Today's Daily Quiz Data:
 ${todayQuizText}
@@ -98,13 +125,11 @@ ${todayQuizText}
     - Pricing Plans & Credit System (CRITICAL: Use these exact facts. Do NOT guess or invent other prices):
 ${pricingText}
 
-    - Credit Consumption Guide (How credits are spent when studying with Yamato):
+    - Credit Consumption Guide & Rules:
 ${creditGuideText}
-      * Explain clearly that studying and interacting with Yamato consumes credits. When credits run out, users need to buy more packs.
 
-    - Legal, Privacy & Support Information (CRITICAL: Use these exact details when users ask about terms, privacy policy, disclaimers, or support contact):
+    - Legal, Privacy, Account & Support Information:
 ${legalContentText}
-      * Explain these calmly, honestly, and accurately whenever asked, always reassuring users that their data privacy (Supabase / Passkeys) and purchases are handled with care and strict security.
   </portal_knowledge_base>
 
   <session_initialization>
