@@ -1,9 +1,9 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ完全移行版）
+ * @description Yamato Portal のコンシェルジュヤマト専用プロンプト生成関数（Cloudflare KV 同期ナレッジ対応版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側のKV同期ナレッジ取得関数をインポート
 
 /**
  * LPコンシェルジュ専用の振る舞いインストラクション（コンシェルジュ固有の役割と導線案内ルール）
@@ -18,28 +18,29 @@ function getConciergeInstructions(): string {
 }
 
 /**
- * コンシェルジュプロンプト生成用のオプション（portalDataを排除し、必要なパラメータのみを定義）
+ * コンシェルジュプロンプト生成用のオプション（env を追加定義）
  */
 export interface ConciergePromptOptions extends YamatoApiCommonOptions {
   userNickname?: string; // ユーザーのニックネーム（デフォルトは "My friend"）
   timeZone?: string;
   cityName?: string;
+  env?: any; // 💡 Cloudflare Workers の環境変数・KVバインド (YAMATO_KNOWLEDGE)
 }
 
 /**
- * コンシェルジュヤマト固有のアイデンティティと、API同期ナレッジを組み込む関数
+ * コンシェルジュヤマト固有のアイデンティティと、Cloudflare KV同期ナレッジを組み込む関数
  */
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
-  const { userNickname = "My friend", ...baseOptions } = options;
+  const { userNickname = "My friend", env, ...baseOptions } = options;
 
-  // 💡 API側で一元管理・同期されているナレッジ（syncedKnowledge）を取得
-  const syncedKnowledge = getSyncedKnowledge();
+  // 💡 Cloudflare KV から一元管理・同期されているナレッジを非同期で取得
+  const syncedKnowledge = await getSyncedKnowledge(env);
 
   const effectivePricePlans = syncedKnowledge.pricePlans || {};
   const effectiveFaqList = syncedKnowledge.faqList || [];
-  const portalContent = syncedKnowledge.portalContent || {}; // 💡 追加: ポータル全体仕様・LP・モジュールデータ
+  const portalContent = syncedKnowledge.portalContent || {}; // ポータル全体仕様・LP・モジュールデータ
 
-  // 💡 ポータルのモジュール一覧（Section 1 & Section 2）をテキスト化してAIに伝える
+  // ポータルのモジュール一覧（Section 1 & Section 2）をテキスト化してAIに伝える
   let portalModulesText = "";
   if (portalContent.modulesSection) {
     const sec1 = portalContent.modulesSection.section1;
