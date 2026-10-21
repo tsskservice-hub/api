@@ -412,7 +412,7 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 Visual Aid (画像生成) の実行処理（location を実績のある "global" に設定）
+    // 💡 Visual Aid (画像生成) の実行処理（serviceAccountKey を明示的に渡す）
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
     const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4);
@@ -427,7 +427,8 @@ app.post('/chat', async (c) => {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: "global" // 👈 実績のある "global" ロケーションを指定
+          location: "global",
+          serviceAccountKey: serviceAccountKey // 👈 サービスアカウントキーを確実に渡す
         });
         if (base64Image) {
           imageUrl = `data:image/png;base64,${base64Image}`;

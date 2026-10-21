@@ -1,13 +1,13 @@
 /**
  * @file imagen-service.ts
- * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（アクセストークン完全対応版）
+ * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（完全引数受渡対応版）
  */
 
 export interface GenerateVisualAidOptions {
   promptText: string;
   projectId?: string;
   location?: string;
-  apiKey?: string;
+  serviceAccountKey?: string;
 }
 
 /**
@@ -82,9 +82,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-/**
- * プロンプトから最新の Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使って画像を生成し、Base64形式で返す関数
- */
 export async function generateVisualAid(
   promptTextOrOptions: string | GenerateVisualAidOptions
 ): Promise<string> {
@@ -95,33 +92,25 @@ export async function generateVisualAid(
 
   const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
 
-  const projectId =
-    options.projectId ||
-    envObj?.VERTEX_AI_PROJECT_ID || 
-    envObj?.GOOGLE_CLOUD_PROJECT;
-
+  const projectId = options.projectId || envObj?.VERTEX_AI_PROJECT_ID || envObj?.GOOGLE_CLOUD_PROJECT;
   const location = options.location || "global";
-
-  const serviceAccountKey =
-    envObj?.VERTEX_AI_KEY ||
-    envObj?.GOOGLE_SERVICE_ACCOUNT_JSON;
+  const serviceAccountKey = options.serviceAccountKey || envObj?.VERTEX_AI_KEY || envObj?.GOOGLE_SERVICE_ACCOUNT_JSON;
 
   console.log("🎨 [imagen-service.ts] 画像生成パラメータ確認:", {
     hasProjectId: Boolean(projectId),
     location,
-    hasServiceAccount: Boolean(serviceAccountKey),
+    hasServiceAccountKey: Boolean(serviceAccountKey),
     prompt: options.promptText
   });
 
   if (!projectId || !serviceAccountKey) {
-    throw new Error("Vertex AI の Project ID または サービスアカウントキーが設定されていません。");
+    throw new Error("Vertex AI の Project ID または サービスアカウントキーが設定されていません（imagen-service）。");
   }
 
   try {
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
     const modelName = "gemini-3.1-flash-lite-image";
 
-    // 💡 Vertex AI の generateContent エンドポイント（画像生成モデル対応）
     const vertexUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
 
     console.log(`🚀 [imagen-service.ts] リクエスト送信先: ${vertexUrl}`);
@@ -149,8 +138,6 @@ export async function generateVisualAid(
     }
 
     const data = (await response.json()) as any;
-    console.log("📥 [imagen-service.ts] レスポンス受信成功。データ解析中...");
-
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts;
 
