@@ -93,7 +93,7 @@ export async function generateVisualAid(
   const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
 
   const projectId = options.projectId || envObj?.VERTEX_AI_PROJECT_ID || envObj?.GOOGLE_CLOUD_PROJECT;
-  const location = options.location || "global"; // 公式ドキュメント指定通り "global"
+  const location = options.location || "global";
   const serviceAccountKey = options.serviceAccountKey || envObj?.VERTEX_AI_KEY || envObj?.GOOGLE_SERVICE_ACCOUNT_JSON;
 
   console.log("🎨 [imagen-service.ts] 公式モデルリクエスト開始:", {
@@ -111,8 +111,10 @@ export async function generateVisualAid(
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
     const modelName = "gemini-3.1-flash-lite-image";
 
-    // 公式仕様に準拠したグローバルエンドポイント
-    const vertexUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
+    // 💡 locationが "global" の場合は aiplatform.googleapis.com を直接利用する正しいエンドポイント構成にする
+    const vertexUrl = location === "global"
+      ? `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${modelName}:generateContent`
+      : `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
 
     console.log(`🚀 [imagen-service.ts] 送信先URL: ${vertexUrl}`);
 
@@ -129,7 +131,6 @@ export async function generateVisualAid(
             text: options.promptText
           }
         },
-        // 💡 公式ドキュメント準拠：テキストと画像の両方をレスポンスとして要求
         generation_config: {
           response_modalities: ["TEXT", "IMAGE"]
         }
@@ -155,7 +156,6 @@ export async function generateVisualAid(
 
     let base64Image: string | undefined = undefined;
 
-    // 配列、または単一オブジェクトの可能性を考慮してパース
     const partsArray = Array.isArray(parts) ? parts : [parts];
 
     for (const part of partsArray) {

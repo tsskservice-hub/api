@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・詳細デバッグログ強化版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・デバッグ強化＆画像生成テスト機能統合版）
  */
 
 import { Hono } from 'hono';
@@ -191,6 +191,81 @@ app.get('/api/ecosystem-metadata', (c) => {
   return c.json({ success: true, metadata });
 });
 
+// 💡 画像生成単体テスト用エンドポイント: POST /api/test-image (Supabase・クレジット検証なし)
+app.post('/api/test-image', async (c) => {
+  try {
+    const body = await c.req.json<{ prompt?: string }>();
+    const prompt = body.prompt;
+    
+    console.log("🎨 [Test Image API] Received prompt for direct test:", prompt);
+
+    const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    const projectId = c.env.VERTEX_AI_PROJECT_ID;
+    const region = c.env.VERTEX_AI_REGION || "global"; // gemini-3.1-flash-lite-image は global エンドポイント推奨
+
+    if (!serviceAccountKey || !projectId) {
+      return c.json({ success: false, error: "VERTEX_AI_KEY/GOOGLE_SERVICE_ACCOUNT_JSON or VERTEX_AI_PROJECT_ID is missing." }, 500);
+    }
+    
+    const accessToken = await getGoogleAccessToken(serviceAccountKey);
+
+    const vertexUrl = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-3.1-flash-lite-image:generateContent`;
+
+    const vertexRes = await fetch(vertexUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${accessToken}`
+      },
+      body: JSON.stringify({
+        contents: {
+          role: 'user',
+          parts: [{ text: prompt || "An engaging educational diagram of Japanese schools" }]
+        },
+        generation_config: {
+          response_modalities: ["TEXT", "IMAGE"]
+        }
+      })
+    });
+
+    if (!vertexRes.ok) {
+      const errText = await vertexRes.text();
+      console.error("❌ [Test Image API] Vertex AI Error:", errText);
+      return c.json({ success: false, error: `Vertex AI API Error: ${errText}` }, 500);
+    }
+
+    const data = (await vertexRes.json()) as any;
+    
+    let base64Image = null;
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts;
+
+    if (parts) {
+      for (const part of parts) {
+        if (part.inlineData && part.inlineData.data) {
+          base64Image = part.inlineData.data;
+          break;
+        }
+      }
+    }
+
+    if (!base64Image) {
+      console.error("❌ [Test Image API] Image data not found in response:", JSON.stringify(data));
+      return c.json({ success: false, error: "Image data not found in model response", rawResponse: data }, 500);
+    }
+
+    console.log("✨ [Test Image API] Image generated successfully! Length:", base64Image.length);
+    return c.json({
+      success: true,
+      imageUrl: `data:image/jpeg;base64,${base64Image}`
+    });
+
+  } catch (err: any) {
+    console.error("❌ [Test Image API] Exception:", err.message);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
 // チャット送信用エンドポイント: POST /chat
 app.post('/chat', async (c) => {
   try {
@@ -250,8 +325,11 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 Visual Aid チェックがONの場合は強制的に 4 クレジット（imageAi）として計算・処理
-    const isVisualAidRequested = Boolean(body.requestVisualAid);
+    // 💡 Visual Aid チェックがONの場合、またはユーザーメッセージに「画像」「図」「イラスト」「描いて」「見せて」などのキーワードが含まれる場合、あるいは appType が image-explanation の場合に画像生成を自動トリガー
+    const userLower = (userMessage || "").toLowerCase();
+    const isImageRequestByUser = userLower.includes("画像") || userLower.includes("図") || userLower.includes("イラスト") || userLower.includes("draw") || userLower.includes("image") || userLower.includes("visual") || userLower.includes("説明して");
+
+    const isVisualAidRequested = Boolean(body.requestVisualAid || isImageRequestByUser || body.appType === "image-explanation");
     const baseRequiredCredits = determineRequiredCreditsFromPayload(body);
     const requiredCredits = isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits;
 
@@ -422,13 +500,14 @@ app.post('/chat', async (c) => {
     // 💡 [DEBUG Step 2] Visual Aid (画像生成) の実行判定と条件分岐のログ
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
-    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4 || appType === "image-explanation");
+    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4 || appType === "image-explanation" || isImageRequestByUser);
 
     console.log("🔍 [DEBUG Step 2] Image Generation Check:", {
       isVisualAidRequested,
       hasVisualPromptInBody: Boolean(body.visualPrompt),
       requiredCredits,
       appType,
+      isImageRequestByUser,
       shouldGenerateImage
     });
 
@@ -447,7 +526,7 @@ app.post('/chat', async (c) => {
         });
 
         if (base64Image) {
-          imageUrl = `data:image/png;base64,${base64Image}`;
+          imageUrl = `data:image/jpeg;base64,${base64Image}`;
           console.log("✨ [DEBUG Step 4] Visual aid generated successfully! Base64 length:", base64Image.length);
         } else {
           console.warn("⚠️ [DEBUG Step 4] generateVisualAid returned null or empty base64 string.");

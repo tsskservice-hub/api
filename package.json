@@ -7,7 +7,7 @@
     "deploy": "wrangler deploy"
   },
   "dependencies": {
-    "@google/genai": "^2.28.0",
+    "@google/genai": "^2.30.0",
     "@supabase/supabase-js": "^2.118.0",
     "hono": "^4.0.0"
   },
