@@ -1,6 +1,6 @@
 /**
  * @file imagen-service.ts
- * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（Cloudflare Workers完全対応版）
+ * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（Cloudflare Workers完全対応・堅牢化版）
  */
 
 import { GoogleGenAI } from "@google/genai";
@@ -31,7 +31,7 @@ export async function generateVisualAid(
     envObj?.VERTEX_AI_PROJECT_ID || 
     envObj?.GOOGLE_CLOUD_PROJECT;
 
-  const location = options.location || "us-central1";
+  const location = options.location || envObj?.VERTEX_AI_REGION || "us-central1";
 
   const apiKey =
     options.apiKey ||
@@ -60,7 +60,7 @@ export async function generateVisualAid(
       });
     } else {
       throw new Error(
-        "Vertex AI の Project ID または API Key が設定されていません。"
+        "Vertex AI の Project ID または API Key が設定されていません。Cloudflare Workers の環境変数またはオプションを確認してください。"
       );
     }
 
@@ -68,7 +68,7 @@ export async function generateVisualAid(
 
     console.log(`🚀 [imagen-service.ts] 画像生成モデルリクエスト開始: ${modelName} (location: ${location})`);
 
-    // 最新仕様に準拠した generateContent による画像生成呼び出し
+    // SDK の generateContent を使用して画像生成をリクエスト
     const response = await ai.models.generateContent({
       model: modelName,
       contents: [
@@ -81,7 +81,7 @@ export async function generateVisualAid(
 
     console.log("📥 [imagen-service.ts] AIモデルからのレスポンスを受信しました。構造を解析します...");
 
-    // レスポンスの候補（candidates）から画像パート（inlineData）を抽出
+    // レスポンスの候補（candidates）から画像パート（inlineData / inline_data）を抽出
     const candidate = response.candidates?.[0];
     const parts = candidate?.content?.parts;
 
@@ -94,7 +94,6 @@ export async function generateVisualAid(
 
     for (let i = 0; i < parts.length; i++) {
       const part = parts[i] as any;
-      // インライン画像のデータが含まれているかチェック (inlineData または inline_data に対応)
       const inlineData = part.inlineData || part.inline_data;
       if (inlineData && inlineData.data) {
         base64Image = inlineData.data;
