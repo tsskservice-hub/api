@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（Cloudflare KV 同期ナレッジ対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（Cloudflare KV 同期ナレッジ・クレジット控除堅牢化版）
  */
 
 import { Hono } from 'hono';
@@ -284,32 +284,41 @@ app.post('/chat', async (c) => {
 
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
-      if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
-        const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-        const { hasEnough, currentCredits } = creditCheck;
+      if (supabaseAdmin) {
+        console.log("🔍 [Supabase] Admin client initialized successfully. Checking credits for user:", effectiveUserId, "Feature:", featureKey, "Required:", requiredCredits);
+        
+        if (effectiveUserId !== "test-guest-user") {
+          const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+          const { hasEnough, currentCredits } = creditCheck;
+          console.log("💳 [Supabase] Credit check result:", { hasEnough, currentCredits, requiredCredits });
 
-        if (!hasEnough) {
-          if (currentCredits <= 0) {
+          if (!hasEnough) {
+            if (currentCredits <= 0) {
+              return c.json({
+                error: "ZERO_CREDITS",
+                message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
+                reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+                currentCredits,
+                requiredCredits
+              }, 402);
+            }
+
             return c.json({
-              error: "ZERO_CREDITS",
-              message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
-              reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+              error: "PARTIAL_SHORTAGE",
+              message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
+              reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
               currentCredits,
               requiredCredits
             }, 402);
           }
-
-          return c.json({
-            error: "PARTIAL_SHORTAGE",
-            message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
-            reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
-            currentCredits,
-            requiredCredits
-          }, 402);
+        } else {
+          console.warn("⚠️ [Supabase] effectiveUserId is 'test-guest-user'. Skipping credit validation & deduction.");
         }
+      } else {
+        console.warn("⚠️ [Supabase] getSupabaseAdmin returned null or undefined.");
       }
     } catch (dbErr: any) {
-      console.warn("⚠️ Database check skipped or failed:", dbErr.message);
+      console.error("❌ [Supabase] Database check exception caught:", dbErr.message, dbErr.stack);
     }
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
@@ -334,12 +343,11 @@ app.post('/chat', async (c) => {
       assignedQuestion: body.assignedQuestion || (hasAnyQuestionImages ? "[External Question Images Attached for AI OCR]" : userMessage),
       timeZone: body.timeZone,
       cityName: body.cityName,
-      env: c.env, // 💡 必要に応じてオプション経由で env を渡す
+      env: c.env,
     };
 
     switch (appType) {
       case "concierge":
-        // 💡 buildConciergePrompt に env を渡して KV から最新データを安全に取得
         systemInstructionText = await buildConciergePrompt({
           ...promptOptions,
           env: c.env,
@@ -482,8 +490,17 @@ app.post('/chat', async (c) => {
       }
     }
 
+    // 💡 クレジットの控除処理（確実な実行とログ出力）
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
-      await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+      try {
+        console.log("💳 [Supabase] Deducting credits for user:", effectiveUserId, "Feature:", featureKey);
+        await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+        console.log("✅ [Supabase] Credits deducted successfully.");
+      } catch (deductErr: any) {
+        console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message, deductErr.stack);
+      }
+    } else {
+      console.warn("⚠️ [Supabase] Credit deduction skipped. supabaseAdmin:", Boolean(supabaseAdmin), "effectiveUserId:", effectiveUserId);
     }
 
     return c.json({ 
