@@ -1,6 +1,6 @@
 /**
  * @file imagen-service.ts
- * @description Gemini 画像生成モデル (gemini-3.1-flash-lite-image) を使用した画像生成ユーティリティ（完全引数受渡対応版）
+ * @description Gemini 3.1 Flash Lite Image 公式仕様準拠の画像生成ユーティリティ
  */
 
 export interface GenerateVisualAidOptions {
@@ -11,7 +11,7 @@ export interface GenerateVisualAidOptions {
 }
 
 /**
- * サービスアカウントのJSONキーを使って、Google CloudのOAuth2アクセストークンを自前で取得する関数
+ * サービスアカウントのJSONキーを使って、Google CloudのOAuth2アクセストークンを取得する関数
  */
 async function getGoogleAccessToken(serviceAccountJson: string): Promise<string> {
   let sa: any;
@@ -93,27 +93,28 @@ export async function generateVisualAid(
   const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
 
   const projectId = options.projectId || envObj?.VERTEX_AI_PROJECT_ID || envObj?.GOOGLE_CLOUD_PROJECT;
-  const location = options.location || "global";
+  const location = options.location || "global"; // 公式ドキュメント指定通り "global"
   const serviceAccountKey = options.serviceAccountKey || envObj?.VERTEX_AI_KEY || envObj?.GOOGLE_SERVICE_ACCOUNT_JSON;
 
-  console.log("🎨 [imagen-service.ts] 画像生成パラメータ確認:", {
-    hasProjectId: Boolean(projectId),
+  console.log("🎨 [imagen-service.ts] 公式モデルリクエスト開始:", {
+    model: "gemini-3.1-flash-lite-image",
     location,
-    hasServiceAccountKey: Boolean(serviceAccountKey),
-    prompt: options.promptText
+    hasProjectId: Boolean(projectId),
+    hasServiceAccountKey: Boolean(serviceAccountKey)
   });
 
   if (!projectId || !serviceAccountKey) {
-    throw new Error("Vertex AI の Project ID または サービスアカウントキーが設定されていません（imagen-service）。");
+    throw new Error("Vertex AI の Project ID または サービスアカウントキーが設定されていません。");
   }
 
   try {
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
     const modelName = "gemini-3.1-flash-lite-image";
 
+    // 公式仕様に準拠したグローバルエンドポイント
     const vertexUrl = `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
 
-    console.log(`🚀 [imagen-service.ts] リクエスト送信先: ${vertexUrl}`);
+    console.log(`🚀 [imagen-service.ts] 送信先URL: ${vertexUrl}`);
 
     const response = await fetch(vertexUrl, {
       method: 'POST',
@@ -122,48 +123,59 @@ export async function generateVisualAid(
         'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({
-        contents: [
-          {
-            role: "user",
-            parts: [{ text: options.promptText }]
+        contents: {
+          role: "user",
+          parts: {
+            text: options.promptText
           }
-        ]
+        },
+        // 💡 公式ドキュメント準拠：テキストと画像の両方をレスポンスとして要求
+        generation_config: {
+          response_modalities: ["TEXT", "IMAGE"]
+        }
       })
     });
 
     if (!response.ok) {
       const errText = await response.text();
       console.error("❌ [imagen-service.ts エラーレスポンス]:", errText);
-      throw new Error(`Image Model API Error (${response.status}): ${errText}`);
+      throw new Error(`Model API Error (${response.status}): ${errText}`);
     }
 
     const data = (await response.json()) as any;
+    console.log("📥 [imagen-service.ts] レスポンス受信成功。パーツを解析します...");
+
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts;
 
-    if (!parts || !Array.isArray(parts)) {
-      throw new Error("モデルからの応答パーツ（parts）が取得できませんでした。");
+    if (!parts) {
+      console.error("❌ レスポンスに parts が含まれません:", JSON.stringify(data));
+      throw new Error("モデルからの応答パーツが取得できませんでした。");
     }
 
     let base64Image: string | undefined = undefined;
 
-    for (const part of parts) {
+    // 配列、または単一オブジェクトの可能性を考慮してパース
+    const partsArray = Array.isArray(parts) ? parts : [parts];
+
+    for (const part of partsArray) {
       const inlineData = part.inlineData || part.inline_data;
       if (inlineData && inlineData.data) {
         base64Image = inlineData.data;
         break;
       }
-      if (part.text && part.text.length > 100 && !part.text.includes(" ")) {
+      if (part.text && part.text.length > 200 && !part.text.includes(" ")) {
         base64Image = part.text.trim();
         break;
       }
     }
 
     if (!base64Image) {
+      console.error("❌ 応答パーツに画像データが見つかりませんでした。Parts:", JSON.stringify(partsArray));
       throw new Error("生成された画像データ（Base64）がレスポンスに含まれていませんでした。");
     }
 
-    console.log("--- ✅ [Gemini Image Model] 画像の生成および抽出に完全に成功しました ---");
+    console.log("--- ✅ [Gemini 3.1 Flash Lite Image] 画像の生成および抽出に成功しました ---");
     return base64Image;
 
   } catch (error: any) {
