@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（Visual Aid連携・クレジット堅牢化・gemini-3.1-flash-lite-image対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・Visual Aid連携・クレジット堅牢化版）
  */
 
 import { Hono } from 'hono';
@@ -17,6 +17,9 @@ import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
 // 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポート
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
+
+// 💡 画像・日本文化解説特化「絵で説明ヤマト」のインポート
+import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
 // 💡 画像生成サービスのインポート
 import { generateVisualAid } from './imagen-service';
@@ -343,6 +346,9 @@ app.post('/chat', async (c) => {
       case "custom":
         systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
         break;
+      case "image-explanation":
+        systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
+        break;
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
@@ -428,7 +434,7 @@ app.post('/chat', async (c) => {
           promptText: promptToUse,
           projectId: projectId,
           location: "global",
-          serviceAccountKey: serviceAccountKey // 👈 サービスアカウントキーを確実に渡す
+          serviceAccountKey: serviceAccountKey
         });
         if (base64Image) {
           imageUrl = `data:image/png;base64,${base64Image}`;
