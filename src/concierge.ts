@@ -68,28 +68,46 @@ ${formatModules(sec2)}`;
     portalModulesText = "    * [DB ERROR] No portal modules data found in Database.";
   }
 
-  // =========================================================================
-  // 2. 料金プランの抽出（Supabaseデータのみ）
+// =========================================================================
+  // 2. 料金プランの抽出（階層を自動で探索してすべて取得）
   // =========================================================================
   let pricingText = "";
-  if (effectivePricePlans && typeof effectivePricePlans === 'object') {
-    const planEntries = Object.entries(effectivePricePlans).filter(([key]) => key !== 'CREDIT_CONSUMPTION_GUIDE');
-    if (planEntries.length > 0) {
-      pricingText = planEntries
-        .map(([_, plan]: [string, any]) => {
-          if (typeof plan === 'object' && plan !== null && (plan.name || plan.title)) {
-            return `  - [${plan.name || plan.title}] Price: ${plan.price || 'Free'} ${plan.period || ''} (AUD: $${plan.priceAUD || ''}). Details: ${plan.badge || plan.description || ''}`;
-          }
-          return '';
-        })
-        .filter(Boolean)
-        .join("\n");
+  
+  // 💡 オブジェクト内を再帰的に探索し、プランらしいデータ（nameやpriceを持つオブジェクト）を全て見つけ出す関数
+  const extractPlans = (obj: any): any[] => {
+    if (!obj || typeof obj !== 'object') return [];
+    let results: any[] = [];
+    
+    for (const [key, val] of Object.entries(obj)) {
+      // 除外すべき特殊キー
+      if (key === 'CREDIT_CONSUMPTION_GUIDE' || key === 'campaignNotice' || key === 'creditConsumptionGuide') continue;
+      
+      if (val && typeof val === 'object') {
+        // プランの目印となるプロパティ（nameやpriceなど）を持っているか判定
+        if ('name' in val || 'price' in val || 'regularCredits' in val) {
+          results.push(val);
+        } else {
+          // まだ階層が深ければ、さらに奥へ潜って探索する
+          results = results.concat(extractPlans(val));
+        }
+      }
     }
+    return results;
+  };
+
+  const extractedPlans = extractPlans(effectivePricePlans);
+  if (extractedPlans.length > 0) {
+    pricingText = extractedPlans
+      .map((plan: any) => {
+        return `  - [${plan.name || plan.title}] Price: ${plan.price || 'Free'} ${plan.period || ''} (AUD: $${plan.priceAUD || ''}). Details: ${plan.badge || plan.description || ''}`;
+      })
+      .join("\n");
   }
 
   if (!pricingText) {
     pricingText = "  - [DB ERROR] No price plans data found in Database.";
   }
+
 
   // =========================================================================
   // 3. クレジット消費ガイド (CREDIT_CONSUMPTION_GUIDE) の抽出（Supabaseデータのみ）
