@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（絵で説明ヤマト対応・デバッグ強化＆画像生成テスト機能統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（Supabase直接参照・絵で説明ヤマト対応＆画像生成テスト機能統合版）
  */
 
 import { Hono } from 'hono';
@@ -31,8 +31,8 @@ import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
 
-// 💡 yamato-portal から同期されたナレッジデータを Cloudflare KV 経由で管理するモジュールのインポート
-import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
+// 💡 Supabase から最新のナレッジデータを取得するモジュールのインポート
+import { getSyncedKnowledge } from './api-sync-knowledge';
 
 // 環境変数の型定義
 type Bindings = {
@@ -43,9 +43,7 @@ type Bindings = {
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  SYNC_API_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
-  YAMATO_KNOWLEDGE: KVNamespace;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -148,31 +146,6 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// ナレッジ同期エンドポイント
-app.post('/api/sync-knowledge', async (c) => {
-  const authHeader = c.req.header('Authorization');
-  const expectedKey = c.env.SYNC_API_KEY;
-
-  if (expectedKey && authHeader !== `Bearer ${expectedKey}`) {
-    console.warn("⚠️ Unauthorized sync attempt detected.");
-    return c.json({ success: false, error: 'Unauthorized: Invalid or missing API key' }, 401);
-  }
-
-  try {
-    const body = await c.req.json<any>();
-    await setSyncedKnowledge(body, c.env);
-
-    return c.json({ 
-      success: true, 
-      message: "Knowledge base synchronized and saved to KV successfully.",
-      timestamp: new Date().toISOString()
-    });
-  } catch (err: any) {
-    console.error("❌ Failed to sync knowledge to KV:", err.message);
-    return c.json({ success: false, error: err.message }, 500);
-  }
-});
-
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
@@ -201,7 +174,6 @@ app.post('/api/test-image', async (c) => {
 
     const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
     const projectId = c.env.VERTEX_AI_PROJECT_ID;
-    const region = c.env.VERTEX_AI_REGION || "global"; // gemini-3.1-flash-lite-image は global エンドポイント推奨
 
     if (!serviceAccountKey || !projectId) {
       return c.json({ success: false, error: "VERTEX_AI_KEY/GOOGLE_SERVICE_ACCOUNT_JSON or VERTEX_AI_PROJECT_ID is missing." }, 500);
@@ -325,7 +297,6 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 Visual Aid チェックがONの場合、またはユーザーメッセージに「画像」「図」「イラスト」「描いて」「見せて」などのキーワードが含まれる場合、あるいは appType が image-explanation の場合に画像生成を自動トリガー
     const userLower = (userMessage || "").toLowerCase();
     const isImageRequestByUser = userLower.includes("画像") || userLower.includes("図") || userLower.includes("イラスト") || userLower.includes("draw") || userLower.includes("image") || userLower.includes("visual") || userLower.includes("説明して");
 
@@ -377,6 +348,8 @@ app.post('/chat', async (c) => {
     // システム指示の構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
+    
+    // 💡 Supabase から最新のナレッジを取得
     const syncedKnowledge = await getSyncedKnowledge(c.env);
     const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
@@ -497,19 +470,9 @@ app.post('/chat', async (c) => {
     const data = (await vertexRes.json()) as any;
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 [DEBUG Step 2] Visual Aid (画像生成) の実行判定と条件分岐のログ
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
     const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4 || appType === "image-explanation" || isImageRequestByUser);
-
-    console.log("🔍 [DEBUG Step 2] Image Generation Check:", {
-      isVisualAidRequested,
-      hasVisualPromptInBody: Boolean(body.visualPrompt),
-      requiredCredits,
-      appType,
-      isImageRequestByUser,
-      shouldGenerateImage
-    });
 
     if (!promptToUse && shouldGenerateImage) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
@@ -517,7 +480,6 @@ app.post('/chat', async (c) => {
 
     if (promptToUse) {
       try {
-        console.log("🎨 [DEBUG Step 3] Calling generateVisualAid with prompt:", promptToUse);
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
@@ -527,39 +489,25 @@ app.post('/chat', async (c) => {
 
         if (base64Image) {
           imageUrl = `data:image/jpeg;base64,${base64Image}`;
-          console.log("✨ [DEBUG Step 4] Visual aid generated successfully! Base64 length:", base64Image.length);
-        } else {
-          console.warn("⚠️ [DEBUG Step 4] generateVisualAid returned null or empty base64 string.");
         }
       } catch (err: any) {
-        console.error("❌ [DEBUG ERROR Step 4] Image generation exception caught in /chat:", err.message, err.stack);
+        console.error("❌ Image generation exception caught in /chat:", err.message);
       }
-    } else {
-      console.log("ℹ️ [DEBUG] Skipped image generation because promptToUse is empty/falsy.");
     }
 
     // クレジット控除処理
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-        console.log("✅ [Supabase] Credits deducted successfully for feature:", featureKey);
       } catch (deductErr: any) {
         console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message);
       }
     }
 
-    const finalResponsePayload = {
+    return c.json({
       reply: aiReply,
       imageUrl: imageUrl 
-    };
-
-    console.log("📤 [DEBUG Step 5] Sending final JSON response to client:", {
-      replyLength: finalResponsePayload.reply?.length,
-      hasImageUrl: Boolean(finalResponsePayload.imageUrl),
-      imageUrlPreview: finalResponsePayload.imageUrl ? finalResponsePayload.imageUrl.slice(0, 40) + "..." : "null"
     });
-
-    return c.json(finalResponsePayload);
 
   } catch (e: any) {
     console.error("❌ Unhandled exception in /chat:", e.message, e.stack);

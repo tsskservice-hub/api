@@ -1,7 +1,7 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal コンシェルジュヤマト（Cloudflare KV データ直接検証・フォールバック無しの完全動的版）
- * 💡 ハードコードされたデフォルトテキストを排除し、KV (syncedKnowledge) に保存されたデータのみを抽出してAIプロンプトへ組み込みます。
+ * @description Yamato Portal コンシェルジュヤマト（Supabase データ直接検証・フォールバック対応版）
+ * 💡 ハードコードされたデフォルトテキストを排除し、Supabase (syncedKnowledge) に保存されたデータのみを抽出してAIプロンプトへ組み込みます。
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge";
@@ -25,24 +25,24 @@ export interface ConciergePromptOptions extends YamatoApiCommonOptions {
   userNickname?: string;
   timeZone?: string;
   cityName?: string;
-  env?: any; // Cloudflare Workers 環境変数・KVバインド (YAMATO_KNOWLEDGE)
+  env?: any; // Cloudflare Workers 環境変数・Supabase接続情報
 }
 
 /**
- * KVからの動的ナレッジのみでプロンプトを構築する主関数
+ * Supabaseからの動的ナレッジのみでプロンプトを構築する主関数
  */
 export async function buildConciergePrompt(options: ConciergePromptOptions = {}): Promise<string> {
   const { userNickname = "My friend", env, ...baseOptions } = options;
 
-  // 💡 Cloudflare KV から同期されたナレッジオブジェクトを取得
+  // 💡 Supabase から同期されたナレッジオブジェクトを取得
   const syncedKnowledge = await getSyncedKnowledge(env);
 
-  const effectivePricePlans = syncedKnowledge?.pricePlans;
+  const effectivePricePlans = syncedKnowledge?.pricePlans || {};
   const effectiveFaqList = syncedKnowledge?.faqList || [];
-  const portalContent = syncedKnowledge?.portalContent;
+  const portalContent = syncedKnowledge?.portalContent || {};
 
   // =========================================================================
-  // 1. モジュール一覧の抽出（KVデータのみ）
+  // 1. モジュール一覧の抽出（Supabaseデータのみ）
   // =========================================================================
   let portalModulesText = "";
   if (portalContent?.modulesSection) {
@@ -64,11 +64,11 @@ ${formatModules(sec1)}
     * ${sec2?.title || 'Section 2'}:
 ${formatModules(sec2)}`;
   } else {
-    portalModulesText = "    * [KV ERROR] No portal modules data found in KV.";
+    portalModulesText = "    * [DB ERROR] No portal modules data found in Database.";
   }
 
   // =========================================================================
-  // 2. 料金プランの抽出（KVデータのみ）
+  // 2. 料金プランの抽出（Supabaseデータのみ）
   // =========================================================================
   let pricingText = "";
   if (effectivePricePlans && typeof effectivePricePlans === 'object') {
@@ -76,8 +76,8 @@ ${formatModules(sec2)}`;
     if (planEntries.length > 0) {
       pricingText = planEntries
         .map(([_, plan]: [string, any]) => {
-          if (typeof plan === 'object' && plan !== null && plan.name) {
-            return `  - [${plan.name}] Price: ${plan.price} ${plan.period || ''} (AUD: $${plan.priceAUD || ''}). Details: ${plan.badge || plan.description || ''}`;
+          if (typeof plan === 'object' && plan !== null && (plan.name || plan.title)) {
+            return `  - [${plan.name || plan.title}] Price: ${plan.price || 'Free'} ${plan.period || ''} (AUD: $${plan.priceAUD || ''}). Details: ${plan.badge || plan.description || ''}`;
           }
           return '';
         })
@@ -87,16 +87,16 @@ ${formatModules(sec2)}`;
   }
 
   if (!pricingText) {
-    pricingText = "  - [KV ERROR] No price plans data found in KV.";
+    pricingText = "  - [DB ERROR] No price plans data found in Database.";
   }
 
   // =========================================================================
-  // 3. クレジット消費ガイド (CREDIT_CONSUMPTION_GUIDE) の抽出（KVデータのみ）
+  // 3. クレジット消費ガイド (CREDIT_CONSUMPTION_GUIDE) の抽出（Supabaseデータのみ）
   // =========================================================================
   const rawCreditGuide = 
     syncedKnowledge?.creditGuide || 
-    syncedKnowledge?.pricePlans?.CREDIT_CONSUMPTION_GUIDE || 
-    (Array.isArray(syncedKnowledge?.pricePlans) ? syncedKnowledge.pricePlans : null);
+    effectivePricePlans?.CREDIT_CONSUMPTION_GUIDE || 
+    null;
 
   let creditGuideText = "";
   if (Array.isArray(rawCreditGuide) && rawCreditGuide.length > 0) {
@@ -104,11 +104,11 @@ ${formatModules(sec2)}`;
       .map((g: any) => `  - ${g.item}: ${g.cost}`)
       .join("\n");
   } else {
-    creditGuideText = "  - [KV ERROR] No CREDIT_CONSUMPTION_GUIDE found in KV.";
+    creditGuideText = "  - [DB ERROR] No CREDIT_CONSUMPTION_GUIDE found in Database.";
   }
 
   // =========================================================================
-  // 4. 法的・サポートデータの抽出（KVデータのみ）
+  // 4. 法的・サポートデータの抽出（Supabaseデータのみ）
   // =========================================================================
   let legalContentText = "";
   if (syncedKnowledge?.legalContent && Object.keys(syncedKnowledge.legalContent).length > 0) {
@@ -119,7 +119,7 @@ ${formatModules(sec2)}`;
   - Privacy Policy: ${lc.privacy?.summary || 'N/A'}
   - Contact Email: ${lc.contact?.directEmail || 'N/A'}`;
   } else {
-    legalContentText = "  - [KV ERROR] No legal content data found in KV.";
+    legalContentText = "  - [DB ERROR] No legal content data found in Database.";
   }
 
   // 💡 プロンプト構造の組み立て
@@ -138,16 +138,16 @@ ${formatModules(sec2)}`;
   </persona_tone>
 
   <portal_knowledge_base>
-    - Portal Pages & Learning Modules (STRICTLY FROM KV):
+    - Portal Pages & Learning Modules (STRICTLY FROM DATABASE):
 ${portalModulesText}
 
-    - Pricing Plans & Credit System (STRICTLY FROM KV):
+    - Pricing Plans & Credit System (STRICTLY FROM DATABASE):
 ${pricingText}
 
-    - Credit Consumption Guide & Rules (STRICTLY FROM KV. Use these exact rules to answer questions about feature costs, image attachments, or image generation):
+    - Credit Consumption Guide & Rules (STRICTLY FROM DATABASE):
 ${creditGuideText}
 
-    - Legal, Privacy, Account & Support Information (STRICTLY FROM KV):
+    - Legal, Privacy, Account & Support Information (STRICTLY FROM DATABASE):
 ${legalContentText}
   </portal_knowledge_base>
 

@@ -1,7 +1,9 @@
 /**
- * @file api-sync-knowledge.ts
- * @description yamato-portal から同期される教育データ・ナレッジを Cloudflare KV を使って保持・管理するモジュール
+ * @file api-sync-knowledge.ts (Supabase版)
+ * @description Supabase から最新の教育データ・ナレッジを取得するモジュール
  */
+
+import { createClient } from '@supabase/supabase-js';
 
 // フォールバック用の空ナレッジ構造
 const DEFAULT_KNOWLEDGE = {
@@ -24,43 +26,40 @@ const DEFAULT_KNOWLEDGE = {
 };
 
 /**
- * yamato-portal から送られたデータを Cloudflare KV (YAMATO_KNOWLEDGE) に保存する
- */
-export async function setSyncedKnowledge(data: any, env: any) {
-  if (!env || !env.YAMATO_KNOWLEDGE) {
-    throw new Error("⚠️ [api-sync-knowledge] YAMATO_KNOWLEDGE KV binding is missing in wrangler.toml!");
-  }
-
-  const payload = {
-    ...data,
-    lastSyncedAt: new Date().toISOString(),
-  };
-
-  // Cloudflare KV に JSON 文字列として永続保存 ("LATEST_KNOWLEDGE" というキーを使用)
-  await env.YAMATO_KNOWLEDGE.put("LATEST_KNOWLEDGE", JSON.stringify(payload));
-  
-  console.log("📦 [api-sync-knowledge] Knowledge base synchronized and saved to KV successfully at:", payload.lastSyncedAt);
-}
-
-/**
- * プロンプト組み立て時に Cloudflare KV から最新のナレッジを非同期で取得する
+ * Supabase から最新のナレッジを非同期で取得する
  */
 export async function getSyncedKnowledge(env: any) {
-  if (!env || !env.YAMATO_KNOWLEDGE) {
-    console.warn("⚠️ [api-sync-knowledge] YAMATO_KNOWLEDGE KV binding is missing. Returning default knowledge.");
+  // Cloudflare Workers の env から取得
+  const supabaseUrl = env?.SUPABASE_URL;
+  // Service Role Key を優先的に取得
+  const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    console.warn("⚠️ [api-sync-knowledge] Supabase credentials (URL or Service Role Key) are missing in env. Returning default knowledge.");
     return DEFAULT_KNOWLEDGE;
   }
 
   try {
-    const dataStr = await env.YAMATO_KNOWLEDGE.get("LATEST_KNOWLEDGE");
-    if (!dataStr) {
-      console.warn("⚠️ [api-sync-knowledge] No knowledge found in KV yet. Please run sync script.");
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // app_knowledge テーブルから 'LATEST_KNOWLEDGE' キーのデータを取得
+    const { data, error } = await supabase
+      .from('app_knowledge')
+      .select('data, updated_at')
+      .eq('key', 'LATEST_KNOWLEDGE')
+      .single();
+
+    if (error || !data) {
+      console.warn("⚠️ [api-sync-knowledge] No knowledge found in Supabase yet:", error?.message);
       return DEFAULT_KNOWLEDGE;
     }
 
-    return JSON.parse(dataStr);
+    return {
+      ...(data.data || {}),
+      lastSyncedAt: data.updated_at,
+    };
   } catch (error) {
-    console.error("❌ [api-sync-knowledge] Failed to parse knowledge from KV:", error);
+    console.error("❌ [api-sync-knowledge] Failed to fetch knowledge from Supabase:", error);
     return DEFAULT_KNOWLEDGE;
   }
 }
