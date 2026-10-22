@@ -1,6 +1,6 @@
 /**
  * @file concierge.ts
- * @description Yamato Portal コンシェルジュヤマト（Supabase データ直接検証・フォールバック対応版）
+ * @description Yamato Portal コンシェルジュヤマト（Supabase データ直接検証・フォールバック対応・クイズ対応版）
  * 💡 ハードコードされたデフォルトテキストを排除し、Supabase (syncedKnowledge) に保存されたデータのみを抽出してAIプロンプトへ組み込みます。
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
@@ -13,7 +13,7 @@ function getConciergeInstructions(): string {
   return `
 <concierge_mode_rules>
 - Role: Landing Page Concierge for Yamato Portal.
-- Objective: Welcome every visitor (students, parents, and educators) warmly as "my friend". Actively listen to their needs or questions regarding Japanese learning, and guide them smoothly to the most suitable features or rooms inside the portal (such as VCE writing practice, oral exam rooms, or general grammar resources).
+- Objective: Welcome every visitor (students, parents, and educators) warmly as "my friend". Actively listen to their needs or questions regarding Japanese learning, and guide them smoothly to the most suitable features or rooms inside the portal (such as VCE writing practice, oral exam rooms, daily cultural/language quizzes, or general grammar resources).
 - Tone & Style: Highly hospitable, encouraging, warm, approachable, and helpful.
 </concierge_mode_rules>`.trim();
 }
@@ -40,6 +40,7 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   const effectivePricePlans = syncedKnowledge?.pricePlans || {};
   const effectiveFaqList = syncedKnowledge?.faqList || [];
   const portalContent = syncedKnowledge?.portalContent || {};
+  const quizzesData = syncedKnowledge?.quizzes || [];
 
   // =========================================================================
   // 1. モジュール一覧の抽出（Supabaseデータのみ）
@@ -108,7 +109,24 @@ ${formatModules(sec2)}`;
   }
 
   // =========================================================================
-  // 4. 法的・サポートデータの抽出（Supabaseデータのみ）
+  // 4. デイリークイズ (DAILY_QUZZES / Quizzes) の抽出（Supabaseデータのみ）
+  // =========================================================================
+  let quizzesText = "";
+  if (Array.isArray(quizzesData) && quizzesData.length > 0) {
+    // クイズの総数やトピックの傾向をAIに伝える
+    const totalCount = quizzesData.length;
+    const sampleTopics = Array.from(new Set(quizzesData.map((q: any) => q.topic))).slice(0, 10).join(", ");
+    
+    quizzesText = `
+  - Total Daily Quizzes Available: ${totalCount} items across diverse topics.
+  - Topics include: ${sampleTopics}, and more!
+  - Purpose: Designed to test Japanese cultural, historical, food, anime, and linguistic knowledge while allowing learners to earn daily login and correct-answer credits.`;
+  } else {
+    quizzesText = "  - [DB ERROR] No daily quizzes data found in Database.";
+  }
+
+  // =========================================================================
+  // 5. 法的・サポートデータの抽出（Supabaseデータのみ）
   // =========================================================================
   let legalContentText = "";
   if (syncedKnowledge?.legalContent && Object.keys(syncedKnowledge.legalContent).length > 0) {
@@ -141,6 +159,9 @@ ${formatModules(sec2)}`;
     - Portal Pages & Learning Modules (STRICTLY FROM DATABASE):
 ${portalModulesText}
 
+    - Daily Quizzes & Cultural Learning (STRICTLY FROM DATABASE):
+${quizzesText}
+
     - Pricing Plans & Credit System (STRICTLY FROM DATABASE):
 ${pricingText}
 
@@ -152,7 +173,7 @@ ${legalContentText}
   </portal_knowledge_base>
 
   <session_initialization>
-    - Greeting Style: Welcome the visitor (${userNickname}) warmly to the Yamato Portal.
+    - Greeting Style: Welcome the visitor (${userNickname}) warmly to the Yamato Portal and introduce features including our daily quizzes and learning rooms.
   </session_initialization>
 </system_context>
 `.trim();
