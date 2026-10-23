@@ -300,14 +300,16 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
+    const isOcrRequest = body.appType === "kanji-grammar-checker-ocr";
     const userLower = (userMessage || "").toLowerCase();
     const isImageRequestByUser = userLower.includes("画像") || userLower.includes("図") || userLower.includes("イラスト") || userLower.includes("draw") || userLower.includes("image") || userLower.includes("visual") || userLower.includes("説明して");
 
-    const isVisualAidRequested = Boolean(body.requestVisualAid || isImageRequestByUser || body.appType === "image-explanation");
+    const isVisualAidRequested = Boolean(body.requestVisualAid || isImageRequestByUser || body.appType === "image-explanation" || isOcrRequest);
     const baseRequiredCredits = determineRequiredCreditsFromPayload(body);
-    const requiredCredits = isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits;
+    const requiredCredits = isOcrRequest ? 4 : (isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits);
 
-    const featureKey: FeatureKey = requiredCredits >= 10 ? 'mockFull' 
+    const featureKey: FeatureKey = isOcrRequest ? 'imageAi'
+      : requiredCredits >= 10 ? 'mockFull' 
       : requiredCredits === 6 ? 'mockSection1' 
       : requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate') ? 'voiceElaborate'
       : requiredCredits === 4 ? 'imageAi' 
@@ -408,7 +410,7 @@ app.post('/chat', async (c) => {
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
       case "kanji-grammar-checker-vce":
-      case "kanji-grammar-checker-ocr": // 💡 追加：手書き文字起こし(OCR)リクエストを適切に処理
+      case "kanji-grammar-checker-ocr":
         systemInstructionText = await buildKanjiGrammarCheckerVCEPrompt({
           ...promptOptions,
           vceResources: syncedKnowledge
