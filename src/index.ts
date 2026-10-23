@@ -15,6 +15,9 @@ import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 
+// 💡 VCE漢字・文法チェッカー専用プロンプトのインポート
+import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
+
 // 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポート
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 
@@ -404,6 +407,13 @@ app.post('/chat', async (c) => {
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
+      case "kanji-grammar-checker-vce":
+        systemInstructionText = await buildKanjiGrammarCheckerVCEPrompt({
+          ...promptOptions,
+          vceResources: syncedKnowledge
+        });
+        break;
+        
       default:
         systemInstructionText = basePromptOverride || buildAiYamatoContext({
           assignedQuestion: body.assignedQuestion || "",
