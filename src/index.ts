@@ -408,6 +408,7 @@ app.post('/chat', async (c) => {
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
       case "kanji-grammar-checker-vce":
+      case "kanji-grammar-checker-ocr": // 💡 追加：手書き文字起こし(OCR)リクエストを適切に処理
         systemInstructionText = await buildKanjiGrammarCheckerVCEPrompt({
           ...promptOptions,
           vceResources: syncedKnowledge
