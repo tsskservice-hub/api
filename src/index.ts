@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（Supabase直接参照・絵で説明ヤマト対応＆画像生成テスト機能統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（構文エラー修正・Visual Aid明示的チェック連動完全版）
  */
 
 import { Hono } from 'hono';
@@ -167,7 +167,7 @@ app.get('/api/ecosystem-metadata', (c) => {
   return c.json({ success: true, metadata });
 });
 
-// 💡 画像生成単体テスト用エンドポイント: POST /api/test-image (Supabase・クレジット検証なし)
+// 💡 画像生成単体テスト用エンドポイント: POST /api/test-image
 app.post('/api/test-image', async (c) => {
   try {
     const body = await c.req.json<{ prompt?: string }>();
@@ -212,10 +212,11 @@ app.post('/api/test-image', async (c) => {
     const data = (await vertexRes.json()) as any;
     
     let base64Image = null;
+    // 💡 [0] を正確に記述
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts;
 
-    if (parts) {
+    if (parts && Array.isArray(parts)) {
       for (const part of parts) {
         if (part.inlineData && part.inlineData.data) {
           base64Image = part.inlineData.data;
@@ -300,11 +301,10 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
+    // 💡 ユーザーが明示的に Visual Aid チェックボックスをONにした場合、または画像解説特化ペルソナのみに限定
     const isOcrRequest = body.appType === "kanji-grammar-checker-ocr";
-    const userLower = (userMessage || "").toLowerCase();
-    const isImageRequestByUser = userLower.includes("画像") || userLower.includes("図") || userLower.includes("イラスト") || userLower.includes("draw") || userLower.includes("image") || userLower.includes("visual") || userLower.includes("説明して");
+    const isVisualAidRequested = Boolean(body.requestVisualAid === true || body.appType === "image-explanation");
 
-    const isVisualAidRequested = Boolean(body.requestVisualAid || isImageRequestByUser || body.appType === "image-explanation" || isOcrRequest);
     const baseRequiredCredits = determineRequiredCreditsFromPayload(body);
     const requiredCredits = isOcrRequest ? 4 : (isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits);
 
@@ -481,17 +481,22 @@ app.post('/chat', async (c) => {
     }
 
     const data = (await vertexRes.json()) as any;
+    
+    // 💡 [0] を正確に復元（構文エラー解消）
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
+    // 💡 ユーザーが明示的に Visual Aid チェックを入れた場合のみ画像生成フラグを有効化
     let imageUrl: string | undefined = undefined;
-    let promptToUse = body.visualPrompt;
-    const shouldGenerateImage = Boolean(isVisualAidRequested || body.visualPrompt || requiredCredits === 4 || appType === "image-explanation" || isImageRequestByUser);
+    const shouldGenerateImage = isVisualAidRequested && appType !== "kanji-grammar-checker-ocr";
+    let promptToUse = shouldGenerateImage ? body.visualPrompt : undefined;
 
-    if (!promptToUse && shouldGenerateImage) {
+    // Visual Aid チェックが入っており、プロンプトが空の場合はデフォルトの図解用プロンプトを生成
+    if (shouldGenerateImage && !promptToUse) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
     }
 
-    if (promptToUse) {
+    // 💡 shouldGenerateImage が true の場合のみ確実に画像生成を実行
+    if (shouldGenerateImage && promptToUse) {
       try {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
