@@ -14,16 +14,17 @@ export interface VceGenkoyoshiPromptOptions extends YamatoApiCommonOptions {
   studentEssay?: string;        // 現在編集中の文章
   timeZone?: string;
   cityName?: string;
+  env?: any;                    // 💡 追加: Cloudflare Workers の env
 }
 
 /**
  * VCE原稿用紙エディターヤマト固有のアイデンティティと、API同期VCEデータを組み込む関数
  */
 export async function buildVceGenkoyoshiPrompt(options: VceGenkoyoshiPromptOptions = {}): Promise<string> {
-  const { selectedTextType = "", studentEssay = "", ...baseOptions } = options;
+  const { selectedTextType = "", studentEssay = "", env, ...baseOptions } = options; // 💡 envを受け取る
 
-  // 💡 API側で一元管理・同期されているナレッジ（syncedKnowledge）を取得
-  const syncedKnowledge = getSyncedKnowledge();
+  // 💡 API側で一元管理・同期されているナレッジ（syncedKnowledge）を await と env を指定して取得
+  const syncedKnowledge = await getSyncedKnowledge(env);
 
   const effectiveTextTypes = syncedKnowledge.vceCriteria?.textTypes || {};
   const effectiveGrammarList = syncedKnowledge.vceCriteria?.grammarList || {};

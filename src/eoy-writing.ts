@@ -183,6 +183,7 @@ export interface EoyWritingPromptOptions extends YamatoApiCommonOptions {
   assignedQuestion?: string;
   timeZone?: string;
   cityName?: string;
+  env?: any; // 💡 追加
 }
 
 export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {}): Promise<string> {
@@ -193,10 +194,12 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     studentEssay = "", 
     hasFiles = false,
     assignedQuestion = "",
+    env, // 💡 追加
     ...baseOptions 
   } = options;
 
-  const syncedKnowledge = getSyncedKnowledge() as any;
+  // 💡 非同期関数に対応するため await を付与し、envを渡す
+  const syncedKnowledge = await getSyncedKnowledge(env) as any;
 
   const effectiveKanjiList = syncedKnowledge?.vceResources?.kanjiList || syncedKnowledge?.kanjiList || [];
   const effectiveVocabularyList = syncedKnowledge?.vceResources?.vceVocabularyList || syncedKnowledge?.vceVocabularyList || [];

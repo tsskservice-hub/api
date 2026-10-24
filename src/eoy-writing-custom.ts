@@ -15,6 +15,7 @@ export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   writingSection?: "section2b" | "section3" | "other";
   timeZone?: string;
   cityName?: string;
+  env?: any; // 💡 追加: Cloudflare Workers の env
 }
 
 /**
@@ -129,11 +130,12 @@ export async function buildEoyWritingCustomPrompt(options: EoyWritingCustomPromp
     hasFiles = false,
     assignedQuestion = "",
     writingSection = "section2b",
+    env, // 💡 envを受け取る
     ...baseOptions 
   } = options;
 
-  // 💡 同期済みナレッジから kanji-list.json を正確に参照
-  const syncedKnowledge = getSyncedKnowledge() as any;
+  // 💡 同期済みナレッジから kanji-list.json を await と env を指定して正確に参照
+  const syncedKnowledge = await getSyncedKnowledge(env) as any;
   const effectiveKanjiList = syncedKnowledge?.kanjiList || syncedKnowledge?.vceResources?.kanjiList || [];
   const kanjiInfoText = Array.isArray(effectiveKanjiList) && effectiveKanjiList.length > 0 
     ? `(${effectiveKanjiList.length} items loaded from kanji-list.json)` 

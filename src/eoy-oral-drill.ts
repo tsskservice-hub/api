@@ -44,16 +44,17 @@ export interface EoyOralDrillPromptOptions extends YamatoApiCommonOptions {
   pace?: string;
   timeZone?: string;
   cityName?: string;
+  env?: any; // 💡 追加: Cloudflare Workers の env
 }
 
 /**
  * EOY Oral Drill 固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildEoyOralDrillPrompt(options: EoyOralDrillPromptOptions = {}): Promise<string> {
-  const { pace, ...baseOptions } = options;
+  const { pace, env, ...baseOptions } = options; // 💡 envを受け取る
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
-  const syncedKnowledge = getSyncedKnowledge();
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）を await と env を指定して取得
+  const syncedKnowledge = await getSyncedKnowledge(env);
   const effectiveFaqList = syncedKnowledge.faqList || [];
 
   // ペースに応じた指示を取得

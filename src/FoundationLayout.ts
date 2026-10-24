@@ -48,7 +48,8 @@ export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
     "practiceMode",
     "faqList",
     "timeZone",
-    "cityName"
+    "cityName",
+    "env"
   ],
 
   currentSettings: {
@@ -104,6 +105,7 @@ export interface FoundationLayoutOptions {
   faqList?: Array<any>;      // リクエストから動的に渡されるFAQデータ
   timeZone?: string;
   cityName?: string;
+  env?: any;                 // 💡 追加: Cloudflare Workers の env
 }
 
 /**
@@ -196,6 +198,7 @@ export async function buildFoundationLayoutPrompt(
     faqList = [],
     timeZone = "Australia/Melbourne",
     cityName = "Melbourne",
+    env, // 💡 envを受け取る
   } = options;
 
   // 1. タイムゾーンと時間の取得（共通処理）
@@ -211,7 +214,7 @@ export async function buildFoundationLayoutPrompt(
   }
 
   // 3. 💡 FAQデータベースの決定（リクエストから渡された faqList を最優先、空の場合は API側で同期された syncedKnowledge.faqList を採用）
-  const syncedKnowledge = getSyncedKnowledge();
+  const syncedKnowledge = await getSyncedKnowledge(env);
   const effectiveFaqList = (faqList && faqList.length > 0) 
     ? faqList 
     : (syncedKnowledge.faqList || []);
