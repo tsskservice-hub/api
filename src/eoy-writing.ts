@@ -16,7 +16,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="images/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -32,7 +32,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="images/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -48,7 +48,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     `
       <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
         <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
-          <img src="images/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+          <img src="/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
         </div>
         <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
           <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
@@ -77,15 +77,20 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
   <step_1_transcription_and_header>
     1. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy (cleanly format into readable lines without raw '\\n' strings).
     2. Count the exact number of Japanese characters from the transcribed text.
-    3. Output the following items at the beginning of your response:
-        [Question you chose] : "${questionDisplay}"
-        [What you wrote] : <Insert a brief summary of the student's written response content here>
-        [What to write] : 
-          * Address the specific prompt requirements of "${questionDisplay}" accurately.
-          * Present a coherent and appropriate text structure matching the required text type.
-          * Clearly develop ideas and arguments relevant to the task.
-        [Transcribed Text] : "<Insert your direct transcription of the student's handwritten Japanese response here>"
-        [Character Count] : <Insert exact character count> characters
+    3. Output the following items at the beginning of your response with one blank line between each section, strictly in this order:
+
+    [Question you chose] : "${questionDisplay}"
+
+    [What to write] : 
+      * Address the specific prompt requirements of "${questionDisplay}" accurately.
+      * Present a coherent and appropriate text structure matching the required text type.
+      * Clearly develop ideas and arguments relevant to the task.
+
+    [What you wrote] : <Insert a summary of the student's response starting directly with the format/content (e.g., "An article titled..."), omitting phrases like "The student wrote">
+
+    [Transcribed Text] : "<Insert your direct transcription of the student's handwritten Japanese response here>"
+
+    [Character Count] : <Insert exact character count> characters
   </step_1_transcription_and_header>
 
   <step_2_mandatory_discrepancy_check>
