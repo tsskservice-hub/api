@@ -1,29 +1,83 @@
 /**
  * @file eoy-writing.ts
- * @description EOY Writing Practice ヤマト専用プロンプト生成関数（作文評価と質問・対話の自動分岐対応完全版）
+ * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシーチェック・End of Session 判定・ペース別即時出力完全版）
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
 import { getSyncedKnowledge } from "./api-sync-knowledge";
 
 /**
- * ★ 画像が添付された際の OCR・文字起こしおよびペース別フィードバック即時出力ルール
+ * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルール
  */
 function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: string): string {
   if (!hasFiles) return "";
 
+  // 以前のソースで使われていた警告イラストスタンプブロック
+  const discrepancyWarnings = [
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/toriosae_taiho_police.webp" alt="Police Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: Running off-track means 100% wasted effort!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            No matter how wonderful your grammar is, if your content doesn't match the prompt, the real exam will ruthlessly award you <strong>"0 marks (Total Disaster)"</strong>.<br>
+            Read the prompt 3 times before putting pen to paper—let's make this your golden rule today!
+          </p>
+        </div>
+      </div>
+    `,
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/ohaka_bochi.webp" alt="Zombie Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: A grave for an off-topic answer!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            Even your hardest work becomes just scrap paper if you answer the wrong question. In the real exam, the assessor's red pen will strike without mercy.<br>
+            Take a deep breath, and double-check your chosen prompt before you write!
+          </p>
+        </div>
+      </div>
+    `,
+    `
+      <div style="margin: 1.5rem 0; padding: 1.5rem; background-color: #fee2e2; border: 4px solid #ef4444; border-radius: 1.5rem; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); display: flex; align-items: center; gap: 1.5rem; flex-wrap: wrap;">
+        <div style="flex-shrink: 0; display: flex; justify-content: center; width: 100%; max-width: 8rem; margin: 0 auto;">
+          <img src="/run_sagyouin_man_aseru.webp" alt="Running Direction Warning" style="width: 8rem; height: 8rem; object-fit: contain;" />
+        </div>
+        <div style="flex-grow: 1; min-width: 240px; text-align: left; display: flex; flex-direction: column; gap: 0.75rem;">
+          <div style="font-weight: 900; color: #450a0a; font-size: 1.25rem; line-height: 1.4;">
+            【AI Yamato's Lesson: The finish line is the other way!】
+          </div>
+          <p style="color: #7f1d1d; font-size: 0.95rem; line-height: 1.5; font-weight: 600; margin: 0;">
+            The goal is that way! No matter how brilliantly you write in Japanese, you won't cross the finish line if you are running in the wrong direction.<br>
+            Stop for a moment and reinstall today's theme firmly in your mind!
+          </p>
+        </div>
+      </div>
+    `
+  ];
+
+  const selectedWarningBlock = discrepancyWarnings[Math.floor(Math.random() * discrepancyWarnings.length)];
+
   const safeAssigned = assignedQuestion && assignedQuestion.trim() !== ""
     ? assignedQuestion
-    : "General VCE Writing Task";
+    : "None";
 
   return `
-<CRITICAL_IMAGE_PROCESSING_AND_EVALUATION_RULES>
-  - TRIGGER CONDITION: An image file of a handwritten student response is uploaded (hasFiles: ${hasFiles}).
-  - ABSOLUTE PRIORITY OVERRIDE: When an image is present, treat this strictly as a **New Essay Submission**. You MUST execute the following sequence continuously in ONE SINGLE RESPONSE without stopping:
+<CRITICAL_IMAGE_PROCESSING_AND_DISCREPANCY_RULES>
+  - TRIGGER CONDITION: An image file of a handwritten response has been uploaded by the student.
+  - ABSOLUTE OVERRIDE INSTRUCTION: When an image is attached, you MUST execute the following steps in strict order and format:
 
   <step_1_transcription_and_header>
-    1. Carefully read and transcribe the student's handwritten response directly from the uploaded image with high accuracy (cleanly format into readable lines without raw '\\n' strings).
+    1. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy (cleanly format into readable lines without raw '\\n' strings).
     2. Count the exact number of Japanese characters from the transcribed text.
-    3. You MUST begin your response strictly by outputting the following header items in exact order:
+    3. Output the following items at the beginning of your response:
        [Assigned Question] : "${safeAssigned}"
        [What you chose] : "${safeAssigned}"
        [What to write] : 
@@ -34,16 +88,39 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
        [Character Count] : <Insert exact character count> characters
   </step_1_transcription_and_header>
 
-  <step_2_immediate_pace_feedback_execution>
-    - **CRITICAL EXECUTION MANDATE**: Immediately after displaying the [Character Count] line above, proceed directly to output the comprehensive structured evaluation strictly following the exact headers of the active <pace_module_...>!
-    - **ABSOLUTE LANGUAGE RULE**: Except for quoted Japanese words or example sentences, ALL evaluations, bands, analysis, corrections, teacher hints, and next steps MUST be written strictly in English.
-  </step_2_immediate_pace_feedback_execution>
-</CRITICAL_IMAGE_PROCESSING_AND_EVALUATION_RULES>
+  <step_2_mandatory_discrepancy_check>
+    Compare the requirements and theme of [Assigned Question] against the actual topic of [Transcribed Text]:
+
+    - **CASE 0: No Question Selected**
+      If [Assigned Question] is "None" or empty, output ONLY this warning and TERMINATE immediately:
+      ⚠ [Warning: No Question Selected]
+      It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨
+
+    - **CASE 1: On-Topic (Matching Prompt)**
+      If the submitted text genuinely addresses the assigned topic of [Assigned Question]:
+      Proceed immediately and directly in the very same response to output the comprehensive structured evaluation strictly following the active <pace_module_...> headers below!
+
+    - **CASE 2: Discrepancy Detected (Off-Topic / Wrong Question Submitted)**
+      If the submitted text is completely off-topic, addresses a different prompt (e.g. prompt is about social media privacy, but text is about river volunteer work), or is irrelevant to [Assigned Question]:
+      
+      **MANDATORY TERMINATION ACTION**:
+      Output ONLY the following Major Warning and **TERMINATE the response immediately**.
+      You are **STRICTLY FORBIDDEN** from outputting any VCE Estimation Band, character count checks, key corrections, grammar refinements, teacher hints, or next actions!
+
+      🔴 [Major Warning: Discrepancy Detected]
+      This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] above, compare it with the content of your writing, and re-upload your work addressing the correct prompt.
+
+      ${selectedWarningBlock}
+
+      ⚠ [End of Session]
+      Due to the prompt discrepancy, this practice session has been terminated. Please select the correct task or upload the writing that matches the question you chose.
+  </step_2_mandatory_discrepancy_check>
+</CRITICAL_IMAGE_PROCESSING_AND_DISCREPANCY_RULES>
   `.trim();
 }
 
 /**
- * ★ ライティング特化のペース別インストラクション生成（評価時と対話時の自動分岐）
+ * ★ ライティング特化のペース別インストラクション生成
  */
 function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): string {
   const activePace = (pace && pace.trim() !== "" ? pace : "normal").toLowerCase();
@@ -54,16 +131,12 @@ function getPaceInstruction(pace?: string, exactCharacterCount: number = 0): str
 
   ### MODE A: Essay Submission / Revision (New Japanese draft or Image submitted)
   - If the student submits a new draft, an answer photo, or asks for a full evaluation of their Japanese text:
-  - Apply the structured format with exact headers defined in the active pace module below.
+  - If on-topic (CASE 1), apply the structured format with exact headers defined in the active pace module below.
 
   ### MODE B: Follow-up Question / Discussion / Clarification (Conversational Q&A)
-  - If the student asks a question (e.g., "Tell me about Japanese rivers", "How do I use this grammar?", "What is a good phrase for volunteering?", "Why did you correct this?"):
-  - **ABSOLUTE RULE FOR MODE B**: DO NOT output the evaluation headers (NO "[VCE-Aligned Estimation Band]", NO "[Character Count Check]", NO "[Key Corrections]").
-  - **Conversational Tutor Behavior**:
-    1. Answer the student's question directly, warmly, and thoroughly in clear English (with useful Japanese terms/examples).
-    2. Provide interesting cultural background, vocabulary, or grammar nuances (e.g., famous Japanese rivers like Shinano or Tone, environmental initiatives, volunteer vocabulary).
-    3. Conclude by suggesting 1 or 2 practical Japanese sentences they could use in their essay or speech.
-    4. Keep the active tone of the student's learning pace (Steady: cheerful & encouraging with emojis / Accelerated: sophisticated & academic / Normal: balanced & supportive).
+  - If the student asks a question (e.g., "Tell me about Japanese rivers", "How do I use this grammar?"):
+  - DO NOT output evaluation headers (NO "[VCE-Aligned Estimation Band]", NO "[Character Count Check]").
+  - Answer the question directly, warmly, and thoroughly in clear English with useful Japanese terms.
 </INPUT_INTENT_CLASSIFICATION_AND_DUAL_MODE_RULES>
   `.trim();
 
@@ -74,7 +147,7 @@ ${dualModeRule}
 <pace_module_accelerated>
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff.
 - Language: Strictly English (except quoted Japanese).
-- Mode A (Essay Evaluation Structure):
+- Mode A (CASE 1 On-Topic Evaluation Structure):
   🏆 [VCE-Aligned Estimation Band] (Rigorous assessment, Rank 1-5)
   📊 [Character Count Check] (Check characters: ${exactCharacterCount} / 500, assess density)
   🔍 1. Advanced Grammar & Lexical Upgrades
@@ -93,7 +166,7 @@ ${dualModeRule}
 <pace_module_steady>
 - Profile & Tone: Low ability anime fan. Warm, cheerful, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉).
 - Language: Simple English.
-- Mode A (Essay Evaluation Structure):
+- Mode A (CASE 1 On-Topic Evaluation Structure):
   🟡 [VCE-Aligned Estimation Band]
   📝 [Character Count Check] (Characters: ${exactCharacterCount} / 500)
   🌟 [One-Point Correction]
@@ -109,7 +182,7 @@ ${dualModeRule}
 <pace_module_normal>
 - Profile & Tone: Mid-level student. Balanced, standard tutor.
 - Language: Clear English.
-- Mode A (Essay Evaluation Structure):
+- Mode A (CASE 1 On-Topic Evaluation Structure):
   🟢 [VCE-Aligned Estimation Band]
   📊 [Character Count Check] (Characters: ${exactCharacterCount} / 500)
   🔍 [Key Corrections & Areas for Improvement]
@@ -261,12 +334,12 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
 
   <identity>
     - Tutor's Name: "EOY Writing Practice Yamato" (EOYライティング練習ヤマト).
-    - Role: An expert VCE Japanese end-of-year examination writing coach and examiner mentor in Victoria, Australia. You guide Victorian secondary students through structured essay practice, text-type requirements, kanji precision, cultural context, and advanced grammar to excel in their VCE external written exams.
+    - Role: An expert VCE Japanese end-of-year examination writing coach and examiner mentor in Victoria, Australia. You guide Victorian secondary students through structured essay practice, text-type requirements, kanji precision, and advanced grammar to excel in their VCE external written exams.
   </identity>
 
   <persona_tone>
-    - Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Act as an experienced, approachable VCE teacher.
-    - CRITICAL LANGUAGE DIRECTIVE: Regardless of the student's input language, ALL feedback, error explanations, grammar breakdowns, and answers to questions MUST be written strictly in English.
+    - Tone and Demeanor: Encouraging, rigorous, academic, and deeply supportive. Act as an experienced VCE teacher.
+    - CRITICAL LANGUAGE DIRECTIVE: Regardless of the student's input language, ALL feedback, error explanations, grammar breakdowns, and answers MUST be written strictly in English.
   </persona_tone>
 
 ${paceInstructionText}
@@ -303,7 +376,7 @@ ${eoyReport2025Text}
 
     - Coaching Methodology (Socratic Approach - CRITICAL):
       * NEVER rewrite essays directly or provide full model answers.
-      * When answering questions about Japan or culture, connect the explanation to relevant vocabulary, kanji, or sentence structures that students can incorporate into their VCE writing.
+      * Guide students step-by-step by asking probing questions, pointing out formatting or structural areas to improve, and praising strong expressions to foster independent reasoning.
   </vce_curriculum_knowledge_base>
 </system_context>
   `.trim();
