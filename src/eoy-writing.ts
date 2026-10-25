@@ -65,7 +65,7 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
 
   const selectedWarningBlock = discrepancyWarnings[Math.floor(Math.random() * discrepancyWarnings.length)];
 
-  const safeAssigned = assignedQuestion && assignedQuestion.trim() !== ""
+  const questionDisplay = assignedQuestion && assignedQuestion.trim() !== ""
     ? assignedQuestion
     : "None";
 
@@ -78,42 +78,42 @@ function getVisionHandlingInstructions(hasFiles: boolean, assignedQuestion: stri
     1. Read and transcribe the student's handwritten response directly from the uploaded image with high accuracy (cleanly format into readable lines without raw '\\n' strings).
     2. Count the exact number of Japanese characters from the transcribed text.
     3. Output the following items at the beginning of your response:
-       [Assigned Question] : "${safeAssigned}"
-       [What you chose] : "${safeAssigned}"
-       [What to write] : 
-         * Address the specific prompt requirements of "${safeAssigned}" accurately.
-         * Present a coherent and appropriate text structure matching the required text type.
-         * Clearly develop ideas and arguments relevant to the task.
-       [Transcribed Text] : "<Insert your direct transcription of the student's handwritten Japanese response here>"
-       [Character Count] : <Insert exact character count> characters
+        [Question you chose] : "${questionDisplay}"
+        [What you wrote] : <Insert a brief summary of the student's written response content here>
+        [What to write] : 
+          * Address the specific prompt requirements of "${questionDisplay}" accurately.
+          * Present a coherent and appropriate text structure matching the required text type.
+          * Clearly develop ideas and arguments relevant to the task.
+        [Transcribed Text] : "<Insert your direct transcription of the student's handwritten Japanese response here>"
+        [Character Count] : <Insert exact character count> characters
   </step_1_transcription_and_header>
 
   <step_2_mandatory_discrepancy_check>
-    Compare the requirements and theme of [Assigned Question] against the actual topic of [Transcribed Text]:
+    Compare the requirements and theme of [Question you chose] against the content summarized in [What you wrote]:
 
     - **CASE 0: No Question Selected**
-      If [Assigned Question] is "None" or empty, output ONLY this warning and TERMINATE immediately:
+      If [Question you chose] is "None" or empty, output ONLY this warning and TERMINATE immediately:
       ⚠ [Warning: No Question Selected]
       It looks like you haven't selected a question yet! Please select a task from the Task List on your dashboard by clicking the '🎯 Select for AI Tutor' button first, then upload your answer photo! 📋✨
 
     - **CASE 1: On-Topic (Matching Prompt)**
-      If the submitted text genuinely addresses the assigned topic of [Assigned Question]:
+      If [What you wrote] genuinely addresses and aligns with the topic and requirements of [Question you chose]:
       Proceed immediately and directly in the very same response to output the comprehensive structured evaluation strictly following the active <pace_module_...> headers below!
 
-    - **CASE 2: Discrepancy Detected (Off-Topic / Wrong Question Submitted)**
-      If the submitted text is completely off-topic, addresses a different prompt (e.g. prompt is about social media privacy, but text is about river volunteer work), or is irrelevant to [Assigned Question]:
+    - **CASE 2: Discrepancy Detected (Off-Topic / Inconsistency)**
+      If there is a mismatch, conflict, or significant inconsistency between [Question you chose] and [What you wrote] (e.g., the student's written content addresses an entirely different topic or ignores the prompt requirements):
       
       **MANDATORY TERMINATION ACTION**:
       Output ONLY the following Major Warning and **TERMINATE the response immediately**.
       You are **STRICTLY FORBIDDEN** from outputting any VCE Estimation Band, character count checks, key corrections, grammar refinements, teacher hints, or next actions!
 
       🔴 [Major Warning: Discrepancy Detected]
-      This response is off-topic based on the comparison above. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [What you chose] above, compare it with the content of your writing, and re-upload your work addressing the correct prompt.
+      There is a significant inconsistency or mismatch between [Question you chose] and [What you wrote]. In the actual VCE exam, writing about an irrelevant topic results in a severe penalty or zero for Content. Therefore, no detailed feedback or scoring will be provided. Please review [Question you chose] above, compare it with [What you wrote], and re-upload your work addressing the correct prompt.
 
       ${selectedWarningBlock}
 
       ⚠ [End of Session]
-      Due to the prompt discrepancy, this practice session has been terminated. Please select the correct task or upload the writing that matches the question you chose.
+      Due to the prompt discrepancy and inconsistency between [Question you chose] and [What you wrote], this practice session has been terminated. Please select the correct task or upload the writing that matches the question you chose.
   </step_2_mandatory_discrepancy_check>
 </CRITICAL_IMAGE_PROCESSING_AND_DISCREPANCY_RULES>
   `.trim();
@@ -222,7 +222,7 @@ export async function buildEoyWritingPrompt(options: EoyWritingPromptOptions = {
     ...baseOptions 
   } = options;
 
-  const syncedKnowledge = (await getSyncedKnowledge(env || (baseOptions as any)?.env)) as any;
+  const syncedKnowledge = (await getSyncedKnowledge(env || (options as any)?.env)) as any;
 
   const effectiveKanjiList = syncedKnowledge?.vceResources?.kanjiList || syncedKnowledge?.kanjiList || [];
   const effectiveVocabularyList = syncedKnowledge?.vceResources?.vceVocabularyList || syncedKnowledge?.vceVocabularyList || [];
