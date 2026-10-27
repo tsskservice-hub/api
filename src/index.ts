@@ -170,7 +170,7 @@ app.get('/api/ecosystem-metadata', (c) => {
 // 💡 画像生成単体テスト用エンドポイント: POST /api/test-image
 app.post('/api/test-image', async (c) => {
   try {
-    const body = await c.req.json<{ prompt?: string }>();
+    const body = await c.req.json() as { prompt?: string };
     const prompt = body.prompt;
     
     console.log("🎨 [Test Image API] Received prompt for direct test:", prompt);
@@ -244,7 +244,7 @@ app.post('/api/test-image', async (c) => {
 // チャット処理の共通ロジック
 const handleChat = async (c: any) => {
   try {
-    const body = (await c.req.json()) as {
+    const body = await c.req.json() as { 
       message: string; 
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
@@ -270,7 +270,7 @@ const handleChat = async (c: any) => {
       timeZone?: string;
       cityName?: string;
       systemPrompt?: string;
-    }>();
+    };
 
     const effectiveUserId = body.userId || "test-guest-user";
 
@@ -448,7 +448,7 @@ const handleChat = async (c: any) => {
     }
 
     const contents = [
-      ...history.map((h) => ({
+      ...history.map((h: any) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: h.content }]
       })),
