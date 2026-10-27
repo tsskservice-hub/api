@@ -212,7 +212,6 @@ app.post('/api/test-image', async (c) => {
     const data = (await vertexRes.json()) as any;
     
     let base64Image = null;
-    // 💡 [0] を正確に記述
     const candidate = data.candidates?.[0];
     const parts = candidate?.content?.parts;
 
@@ -242,10 +241,10 @@ app.post('/api/test-image', async (c) => {
   }
 });
 
-// チャット送信用エンドポイント: POST /chat
-app.post('/chat', async (c) => {
+// チャット処理の共通ロジック
+const handleChat = async (c: any) => {
   try {
-    const body = await c.req.json<{ 
+    const body = (await c.req.json()) as {
       message: string; 
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
@@ -301,7 +300,6 @@ app.post('/chat', async (c) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    // 💡 ユーザーが明示的に Visual Aid チェックボックスをONにした場合、または画像解説特化ペルソナのみに限定
     const isOcrRequest = body.appType === "kanji-grammar-checker-ocr";
     const isVisualAidRequested = Boolean(body.requestVisualAid === true || body.appType === "image-explanation");
 
@@ -350,11 +348,9 @@ app.post('/chat', async (c) => {
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // システム指示の構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     
-    // 💡 Supabase から最新のナレッジを取得
     const syncedKnowledge = await getSyncedKnowledge(c.env);
     const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
@@ -428,7 +424,6 @@ app.post('/chat', async (c) => {
         break;
     }
 
-    // マルチモーダル対応
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
@@ -482,20 +477,16 @@ app.post('/chat', async (c) => {
 
     const data = (await vertexRes.json()) as any;
     
-    // 💡 [0] を正確に復元（構文エラー解消）
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
-    // 💡 ユーザーが明示的に Visual Aid チェックを入れた場合のみ画像生成フラグを有効化
     let imageUrl: string | undefined = undefined;
     const shouldGenerateImage = isVisualAidRequested && appType !== "kanji-grammar-checker-ocr";
     let promptToUse = shouldGenerateImage ? body.visualPrompt : undefined;
 
-    // Visual Aid チェックが入っており、プロンプトが空の場合はデフォルトの図解用プロンプトを生成
     if (shouldGenerateImage && !promptToUse) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
     }
 
-    // 💡 shouldGenerateImage が true の場合のみ確実に画像生成を実行
     if (shouldGenerateImage && promptToUse) {
       try {
         const base64Image = await generateVisualAid({
@@ -513,7 +504,6 @@ app.post('/chat', async (c) => {
       }
     }
 
-    // クレジット控除処理
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
@@ -531,6 +521,10 @@ app.post('/chat', async (c) => {
     console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
     return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
-});
+};
+
+// 💡 /api/chat と /chat の両方のエンドポイントを登録して404エラーを防ぐ
+app.post('/api/chat', handleChat);
+app.post('/chat', handleChat);
 
 export default app;
