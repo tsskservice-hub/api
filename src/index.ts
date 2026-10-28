@@ -46,7 +46,6 @@ type Bindings = {
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  AIYAMATO_SYSTEM_PROMPT?: string;
   OPENAI_API_KEY?: string; // 💡 OpenAI APIキー（TTS/STT用）
 };
 
@@ -447,7 +446,9 @@ const handleChat = async (c: any) => {
     const appType = body.appType || "general";
     
     const syncedKnowledge = await getSyncedKnowledge(c.env);
-    const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
+    
+    // 💡 不要な AIYAMATO_SYSTEM_PROMPT の参照を削除し、ボディ経由のプロンプト指定のみにクリーンアップ
+    const basePromptOverride = body.systemPrompt || "";
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
