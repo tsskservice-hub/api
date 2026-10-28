@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（構文エラー修正・Visual Aid明示的チェック連動完全版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（音声検証用エンドポイント追加版）
  */
 
 import { Hono } from 'hono';
@@ -47,6 +47,7 @@ type Bindings = {
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
+  OPENAI_API_KEY?: string; // 💡 追加：音声テスト用OpenAI APIキー
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -241,7 +242,91 @@ app.post('/api/test-image', async (c) => {
   }
 });
 
+// ==========================================
+// 💡 音声機能テスト専用エンドポイント (TTS & STT)
+// ==========================================
+
+// 1. TTS (音声合成) テストエンドポイント: POST /api/test-tts
+app.post('/api/test-tts', async (c) => {
+  try {
+    const body = await c.req.json() as { text?: string };
+    const text = body.text;
+    const apiKey = c.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return c.json({ error: "OPENAI_API_KEY is missing on Worker bindings." }, 500);
+    }
+
+    const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        input: text || "テスト音声です",
+        voice: "fable",
+      }),
+    });
+
+    if (!ttsRes.ok) {
+      const errText = await ttsRes.text();
+      return c.json({ error: `OpenAI TTS Error: ${errText}` }, 500);
+    }
+
+    const audioBuffer = await ttsRes.arrayBuffer();
+    return new Response(audioBuffer, {
+      headers: { "Content-Type": "audio/mpeg" },
+    });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// 2. STT (音声認識・文字起こし) テストエンドポイント: POST /api/test-stt
+app.post('/api/test-stt', async (c) => {
+  try {
+    const formData = await c.req.parseBody();
+    const audioFile = formData["audio"];
+    const apiKey = c.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      return c.json({ error: "OPENAI_API_KEY is missing on Worker bindings." }, 500);
+    }
+
+    if (!audioFile || !(audioFile instanceof File)) {
+      return c.json({ error: "Audio file is required" }, 400);
+    }
+
+    const apiFormData = new FormData();
+    apiFormData.append("file", audioFile, "recording.webm");
+    apiFormData.append("model", "whisper-1");
+    apiFormData.append("language", "ja");
+
+    const sttRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+      },
+      body: apiFormData,
+    });
+
+    if (!sttRes.ok) {
+      const errText = await sttRes.text();
+      return c.json({ error: `OpenAI STT Error: ${errText}` }, 500);
+    }
+
+    const sttData = (await sttRes.json()) as { text?: string };
+    return c.json({ success: true, userText: sttData.text || "" });
+  } catch (err: any) {
+    return c.json({ error: err.message }, 500);
+  }
+});
+
+// ==========================================
 // チャット処理の共通ロジック
+// ==========================================
 const handleChat = async (c: any) => {
   try {
     const body = await c.req.json() as { 
@@ -523,7 +608,7 @@ const handleChat = async (c: any) => {
   }
 };
 
-// 💡 /api/chat と /chat の両方のエンドポイントを登録して404エラーを防ぐ
+// 💡 エンドポイントの登録
 app.post('/api/chat', handleChat);
 app.post('/chat', handleChat);
 
