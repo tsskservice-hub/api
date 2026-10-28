@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（音声検証用エンドポイント追加版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（正式版：音声合成 /api/tts & 文字起こし /api/stt 搭載）
  */
 
 import { Hono } from 'hono';
@@ -47,7 +47,7 @@ type Bindings = {
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
-  OPENAI_API_KEY?: string; // 💡 追加：音声テスト用OpenAI APIキー
+  OPENAI_API_KEY?: string; // 💡 OpenAI APIキー（TTS/STT用）
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -243,11 +243,10 @@ app.post('/api/test-image', async (c) => {
 });
 
 // ==========================================
-// 💡 音声機能テスト専用エンドポイント (TTS & STT)
+// 💡 正式版 音声機能エンドポイント (TTS & STT)
 // ==========================================
 
-// 1. TTS (音声合成) テストエンドポイント: POST /api/test-tts
-app.post('/api/test-tts', async (c) => {
+const handleTTS = async (c: any) => {
   try {
     const body = await c.req.json() as { text?: string };
     const text = body.text;
@@ -276,16 +275,18 @@ app.post('/api/test-tts', async (c) => {
     }
 
     const audioBuffer = await ttsRes.arrayBuffer();
-    return new Response(audioBuffer, {
-      headers: { "Content-Type": "audio/mpeg" },
+    const origin = c.req.header('Origin') || '*';
+    return c.newResponse(audioBuffer, 200, {
+      "Content-Type": "audio/mpeg",
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Credentials": "true",
     });
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
-});
+};
 
-// 2. STT (音声認識・文字起こし) テストエンドポイント: POST /api/test-stt
-app.post('/api/test-stt', async (c) => {
+const handleSTT = async (c: any) => {
   try {
     const formData = await c.req.parseBody();
     const audioFile = formData["audio"];
@@ -322,7 +323,16 @@ app.post('/api/test-stt', async (c) => {
   } catch (err: any) {
     return c.json({ error: err.message }, 500);
   }
-});
+};
+
+// 正式エンドポイントおよびテスト互換エンドポイントの登録
+app.post('/api/tts', handleTTS);
+app.post('/tts', handleTTS);
+app.post('/api/test-tts', handleTTS); // 互換用
+
+app.post('/api/stt', handleSTT);
+app.post('/stt', handleSTT);
+app.post('/api/test-stt', handleSTT); // 互換用
 
 // ==========================================
 // チャット処理の共通ロジック
