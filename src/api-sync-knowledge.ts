@@ -1,6 +1,6 @@
 /**
  * @file api-sync-knowledge.ts (Supabase版・全キー統合対応)
- * @description Supabase から最新の教育データ・ナレッジを複数行（または単一のLATEST_KNOWLEDGE）から取得・結合するモジュール
+ * @description Supabase から最新の教育データ・ナレッジの取得、および Supabase への保存・同期を行うモジュール
  */
 
 import { createClient } from '@supabase/supabase-js';
@@ -92,4 +92,40 @@ export async function getSyncedKnowledge(env: any) {
     console.error("❌ [api-sync-knowledge] Failed to fetch knowledge from Supabase:", error);
     return DEFAULT_KNOWLEDGE;
   }
+}
+
+/**
+ * 💡 yamato-portal 側から送信されたナレッジデータを Supabase に保存・更新する
+ */
+export async function setSyncedKnowledge(body: any, env: any) {
+  const supabaseUrl = env?.SUPABASE_URL;
+  const supabaseKey = env?.SUPABASE_SERVICE_ROLE_KEY || env?.SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Supabase credentials (URL or Service Role Key) are missing in environment variables.");
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+
+  // 送信されたデータ構造に応じて upsert を実行
+  // 例として全体データを 'LATEST_KNOWLEDGE' キーとして一括保存、または各プロパティごとに分割保存する方式に対応
+  const payloadKey = body.key || 'LATEST_KNOWLEDGE';
+  const payloadData = body.data || body;
+
+  const { error } = await supabase
+    .from('app_knowledge')
+    .upsert(
+      {
+        key: payloadKey,
+        data: payloadData,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'key' }
+    );
+
+  if (error) {
+    throw new Error(`Failed to upsert knowledge to Supabase: ${error.message}`);
+  }
+
+  return true;
 }

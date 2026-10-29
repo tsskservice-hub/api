@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（正式版：音声合成 /api/tts & 文字起こし /api/stt 搭載）
+ * @description HonoベースのCloudflare Workers用APIサーバー（音声会話ドリル/右下テキスト・多枚数画像チャットのクレジット動的判定 & 完全対応版）
  */
 
 import { Hono } from 'hono';
@@ -14,14 +14,8 @@ import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
 import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
-
-// 💡 VCE漢字・文法チェッカー専用プロンプトのインポート
 import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
-
-// 💡 カスタムライティング用頭脳（eoy-writing-custom.ts）のインポート
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
-
-// 💡 画像・日本文化解説特化「絵で説明ヤマト」のインポート
 import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
 // 💡 画像生成サービスのインポート
@@ -32,12 +26,12 @@ import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 
 // 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理・ルール関数のインポート
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
-import { determineRequiredCreditsFromPayload, FeatureKey } from './credit-rules';
+import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } from './credit-rules';
 
-// 💡 Supabase から最新のナレッジデータを取得するモジュールのインポート
-import { getSyncedKnowledge } from './api-sync-knowledge';
+// 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
+import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
-// 環境変数の型定義
+// 環境変数の型定義（柔軟なキー名に対応）
 type Bindings = {
   VERTEX_AI_KEY?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
@@ -46,7 +40,10 @@ type Bindings = {
   SUPABASE_URL?: string;
   VITE_SUPABASE_URL?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
-  OPENAI_API_KEY?: string; // 💡 OpenAI APIキー（TTS/STT用）
+  SYNC_API_KEY?: string;
+  AIYAMATO_SYSTEM_PROMPT?: string;
+  OPENAI_API_KEY?: string;
+  YAMATO_KNOWLEDGE?: KVNamespace;
 };
 
 const app = new Hono<{ Bindings: Bindings }>();
@@ -92,7 +89,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const clientEmail = sa.client_email;
 
   const now = Math.floor(Date.now() / 1000);
-  const exp = now + 3600;
+  const exp = now + 3600; // 有効期限 1時間
 
   const header = { alg: "RS256", typ: "JWT" };
   const claimSet = {
@@ -149,196 +146,76 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
+// 💡 yamato-portal 側から教育データ・ナレッジを一括同期するエンドポイント
+app.post('/api/sync-knowledge', async (c) => {
+  const authHeader = c.req.header('Authorization');
+  const expectedKey = c.env.SYNC_API_KEY;
+
+  if (expectedKey && authHeader !== `Bearer ${expectedKey}`) {
+    console.warn("⚠️ Unauthorized sync attempt detected.");
+    return c.json({ success: false, error: 'Unauthorized: Invalid or missing API key' }, 401);
+  }
+
+  try {
+    const body = (await c.req.json()) as any;
+    
+    await setSyncedKnowledge(body, c.env);
+
+    return c.json({ 
+      success: true, 
+      message: "Knowledge base synchronized successfully.",
+      timestamp: new Date().toISOString()
+    });
+  } catch (err: any) {
+    console.error("❌ Failed to sync knowledge:", err.message);
+    return c.json({ success: false, error: err.message }, 500);
+  }
+});
+
+// スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
   return c.json({ appType, fields });
 });
 
+// 💡 FoundationLayout.ts の FOUNDATION_LAYOUT_META を丸ごと配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
-    apiCommon: { fileName: "YamatoApiCommon.tsx", layer: "窓口・外装", role: "共通プロンプト構造" },
-    template: { fileName: "a-template.ts", layer: "乗組員", role: "ペルソナ記述ひな形" },
-    portalLayout: { fileName: "PageLayout.tsx", layer: "土台", role: "共通レイアウト・認証基盤" },
-    chatCommon: { fileName: "YamatoChatCommon.tsx", layer: "窓口", role: "対話UIウィジェット" }
+    apiCommon: {
+      fileName: "YamatoApiCommon.tsx",
+      layer: "窓口・外装",
+      role: "共通プロンプト構造や共通オプションを受け渡す基盤",
+    },
+    template: {
+      fileName: "a-template.ts",
+      layer: "乗組員 (ひな形)",
+      role: "FoundationLayout のデータが内包されている YamatoApiCommon.tsx をインポートしてペルソナを記述するひな形",
+    },
+    portalLayout: {
+      fileName: "PageLayout.tsx",
+      layer: "土台 (機体)",
+      role: "ポータル全体の共通レイアウト、ヘッダー/フッター、パスキー認証基盤",
+    },
+    chatCommon: {
+      fileName: "YamatoChatCommon.tsx",
+      layer: "窓口・外装",
+      role: "対話UIの汎用テンプレート・操縦士コックピット",
+    }
   };
 
-  return c.json({ success: true, metadata });
+  return c.json({
+    success: true,
+    metadata,
+  });
 });
 
-// 💡 画像生成単体テスト用エンドポイント: POST /api/test-image
-app.post('/api/test-image', async (c) => {
+// チャット送信用エンドポイント: POST /chat
+app.post('/chat', async (c) => {
   try {
-    const body = await c.req.json() as { prompt?: string };
-    const prompt = body.prompt;
-    
-    console.log("🎨 [Test Image API] Received prompt for direct test:", prompt);
-
-    const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    const projectId = c.env.VERTEX_AI_PROJECT_ID;
-
-    if (!serviceAccountKey || !projectId) {
-      return c.json({ success: false, error: "VERTEX_AI_KEY/GOOGLE_SERVICE_ACCOUNT_JSON or VERTEX_AI_PROJECT_ID is missing." }, 500);
-    }
-    
-    const accessToken = await getGoogleAccessToken(serviceAccountKey);
-
-    const vertexUrl = `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/gemini-3.1-flash-lite-image:generateContent`;
-
-    const vertexRes = await fetch(vertexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify({
-        contents: {
-          role: 'user',
-          parts: [{ text: prompt || "An engaging educational diagram of Japanese schools" }]
-        },
-        generation_config: {
-          response_modalities: ["TEXT", "IMAGE"]
-        }
-      })
-    });
-
-    if (!vertexRes.ok) {
-      const errText = await vertexRes.text();
-      console.error("❌ [Test Image API] Vertex AI Error:", errText);
-      return c.json({ success: false, error: `Vertex AI API Error: ${errText}` }, 500);
-    }
-
-    const data = (await vertexRes.json()) as any;
-    
-    let base64Image = null;
-    const candidate = data.candidates?.[0];
-    const parts = candidate?.content?.parts;
-
-    if (parts && Array.isArray(parts)) {
-      for (const part of parts) {
-        if (part.inlineData && part.inlineData.data) {
-          base64Image = part.inlineData.data;
-          break;
-        }
-      }
-    }
-
-    if (!base64Image) {
-      console.error("❌ [Test Image API] Image data not found in response:", JSON.stringify(data));
-      return c.json({ success: false, error: "Image data not found in model response", rawResponse: data }, 500);
-    }
-
-    console.log("✨ [Test Image API] Image generated successfully! Length:", base64Image.length);
-    return c.json({
-      success: true,
-      imageUrl: `data:image/jpeg;base64,${base64Image}`
-    });
-
-  } catch (err: any) {
-    console.error("❌ [Test Image API] Exception:", err.message);
-    return c.json({ success: false, error: err.message }, 500);
-  }
-});
-
-// ==========================================
-// 💡 正式版 音声機能エンドポイント (TTS & STT)
-// ==========================================
-
-const handleTTS = async (c: any) => {
-  try {
-    const body = await c.req.json() as { text?: string };
-    const text = body.text;
-    const apiKey = c.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return c.json({ error: "OPENAI_API_KEY is missing on Worker bindings." }, 500);
-    }
-
-    const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "tts-1",
-        input: text || "テスト音声です",
-        voice: "fable",
-      }),
-    });
-
-    if (!ttsRes.ok) {
-      const errText = await ttsRes.text();
-      return c.json({ error: `OpenAI TTS Error: ${errText}` }, 500);
-    }
-
-    const audioBuffer = await ttsRes.arrayBuffer();
-    const origin = c.req.header('Origin') || '*';
-    return c.newResponse(audioBuffer, 200, {
-      "Content-Type": "audio/mpeg",
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Credentials": "true",
-    });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
-  }
-};
-
-const handleSTT = async (c: any) => {
-  try {
-    const formData = await c.req.parseBody();
-    const audioFile = formData["audio"];
-    const apiKey = c.env.OPENAI_API_KEY;
-
-    if (!apiKey) {
-      return c.json({ error: "OPENAI_API_KEY is missing on Worker bindings." }, 500);
-    }
-
-    if (!audioFile || !(audioFile instanceof File)) {
-      return c.json({ error: "Audio file is required" }, 400);
-    }
-
-    const apiFormData = new FormData();
-    apiFormData.append("file", audioFile, "recording.webm");
-    apiFormData.append("model", "whisper-1");
-    apiFormData.append("language", "ja");
-
-    const sttRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-      },
-      body: apiFormData,
-    });
-
-    if (!sttRes.ok) {
-      const errText = await sttRes.text();
-      return c.json({ error: `OpenAI STT Error: ${errText}` }, 500);
-    }
-
-    const sttData = (await sttRes.json()) as { text?: string };
-    return c.json({ success: true, userText: sttData.text || "" });
-  } catch (err: any) {
-    return c.json({ error: err.message }, 500);
-  }
-};
-
-// 正式エンドポイントおよびテスト互換エンドポイントの登録
-app.post('/api/tts', handleTTS);
-app.post('/tts', handleTTS);
-app.post('/api/test-tts', handleTTS); // 互換用
-
-app.post('/api/stt', handleSTT);
-app.post('/stt', handleSTT);
-app.post('/api/test-stt', handleSTT); // 互換用
-
-// ==========================================
-// チャット処理の共通ロジック
-// ==========================================
-const handleChat = async (c: any) => {
-  try {
-    const body = await c.req.json() as { 
+    // 💡 c.req.json() にジェネリクスで型を明示し、プロパティの型推論エラーを解消
+    const body = await c.req.json<{ 
       message: string; 
       chatHistory?: { role: string; content: string }[];
       history?: { role: string; content: string }[];
@@ -364,21 +241,24 @@ const handleChat = async (c: any) => {
       timeZone?: string;
       cityName?: string;
       systemPrompt?: string;
-    };
+    }>();
 
     const effectiveUserId = body.userId || "test-guest-user";
 
-    console.log("📥 [DEBUG Step 1] Received /chat request payload:", {
+    console.log("📥 Received /chat request:", {
       userId: effectiveUserId,
       appType: body.appType,
+      isVoiceMode: body.isVoiceMode,
+      writingSection: body.writingSection,
       messageLength: body.message?.length,
       hasAnswerImage: Boolean(body.imageBase64),
-      requestVisualAid: body.requestVisualAid,
-      receivedVisualPrompt: body.visualPrompt
+      questionImagesCount: body.questionImagesBase64?.length || (body.questionImageBase64 ? 1 : 0),
+      assignedQuestion: body.assignedQuestion
     });
 
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
+
     const hasAnyQuestionImages = Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) || Boolean(body.questionImageBase64);
 
     if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
@@ -394,46 +274,54 @@ const handleChat = async (c: any) => {
       return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
     }
 
-    const isOcrRequest = body.appType === "kanji-grammar-checker-ocr";
-    const isVisualAidRequested = Boolean(body.requestVisualAid === true || body.appType === "image-explanation");
+    // 💡 1. リクエスト内容から必要コストを自動判定
+    const requiredCredits = determineRequiredCreditsFromPayload(body);
 
-    const baseRequiredCredits = determineRequiredCreditsFromPayload(body);
-    const requiredCredits = isOcrRequest ? 4 : (isVisualAidRequested ? Math.max(baseRequiredCredits, 4) : baseRequiredCredits);
-
-    const featureKey: FeatureKey = isOcrRequest ? 'imageAi'
+    // 💡 2. featureKey を正確に確定（音声会話ドリル、テキストチャット、単一画像、複数画像を分離）
+    const featureKey: FeatureKey = (body.featureKey && (body.featureKey in SERVER_CREDIT_COSTS))
+      ? body.featureKey
       : requiredCredits >= 10 ? 'mockFull' 
-      : requiredCredits === 6 ? 'mockSection1' 
-      : requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate') ? 'voiceElaborate'
+      : requiredCredits === 6 ? (
+          (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") ? 'mockSection2'
+          : (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") ? 'mockSection1'
+          : 'multiImageAi'
+        )
+      : (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate')) ? 'voiceElaborate'
       : requiredCredits === 4 ? 'imageAi' 
-      : requiredCredits === 3 ? 'voiceDrill' 
+      : (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill')) ? 'voiceDrill' 
       : 'textAi';
 
     let supabaseAdmin: any = null;
 
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
-      if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
-        const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-        const { hasEnough, currentCredits } = creditCheck;
+      if (supabaseAdmin) {
+        console.log(`🔍 [Supabase] Checking credits for user: ${effectiveUserId}, Feature: ${featureKey}, Required: ${requiredCredits}`);
+        
+        if (effectiveUserId !== "test-guest-user") {
+          const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+          const { hasEnough, currentCredits } = creditCheck;
+          console.log("💳 [Supabase] Credit check result:", { hasEnough, currentCredits, requiredCredits });
 
-        if (!hasEnough) {
-          if (currentCredits <= 0) {
+          if (!hasEnough) {
+            if (currentCredits <= 0) {
+              return c.json({
+                error: "ZERO_CREDITS",
+                message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
+                reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+                currentCredits,
+                requiredCredits
+              }, 402);
+            }
+
             return c.json({
-              error: "ZERO_CREDITS",
-              message: "クレジットがゼロです。学習を継続するにはクレジットの追加が必要です。",
-              reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+              error: "PARTIAL_SHORTAGE",
+              message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
+              reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
               currentCredits,
               requiredCredits
             }, 402);
           }
-
-          return c.json({
-            error: "PARTIAL_SHORTAGE",
-            message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
-            reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
-            currentCredits,
-            requiredCredits
-          }, 402);
         }
       }
     } catch (dbErr: any) {
@@ -442,13 +330,12 @@ const handleChat = async (c: any) => {
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
+    // 💡 システム指示の構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
-    
     const syncedKnowledge = await getSyncedKnowledge(c.env);
-    
-    // 💡 不要な AIYAMATO_SYSTEM_PROMPT の参照を削除し、ボディ経由のプロンプト指定のみにクリーンアップ
-    const basePromptOverride = body.systemPrompt || "";
+
+    const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
@@ -468,7 +355,10 @@ const handleChat = async (c: any) => {
 
     switch (appType) {
       case "concierge":
-        systemInstructionText = await buildConciergePrompt(promptOptions);
+        systemInstructionText = await buildConciergePrompt({
+          ...promptOptions,
+          env: c.env,
+        });
         break;
       case "game-igo":
         systemInstructionText = await buildGameIgoPrompt(promptOptions);
@@ -479,7 +369,11 @@ const handleChat = async (c: any) => {
       case "genkoyoshi-editor-vce":
         systemInstructionText = await buildVceGenkoyoshiPrompt(promptOptions);
         break;
+      case "kanji-grammar-checker-vce":
+        systemInstructionText = await buildKanjiGrammarCheckerVCEPrompt(promptOptions);
+        break;
       case "eoy-oral-drill":
+      case "eoy-oral-drill-chat":
         systemInstructionText = await buildEoyOralDrillPrompt(promptOptions);
         break;
       case "eoy-oral-elaborate":
@@ -495,20 +389,12 @@ const handleChat = async (c: any) => {
       case "custom":
         systemInstructionText = await buildEoyWritingCustomPrompt(promptOptions);
         break;
-      case "image-explanation":
-        systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
-        break;
       case "oral-exam-questions":
         systemInstructionText = await buildOralExamQuestionsPrompt(promptOptions);
         break;
-      case "kanji-grammar-checker-vce":
-      case "kanji-grammar-checker-ocr":
-        systemInstructionText = await buildKanjiGrammarCheckerVCEPrompt({
-          ...promptOptions,
-          vceResources: syncedKnowledge
-        });
+      case "image-explanation":
+        systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
         break;
-        
       default:
         systemInstructionText = basePromptOverride || buildAiYamatoContext({
           assignedQuestion: body.assignedQuestion || "",
@@ -520,26 +406,42 @@ const handleChat = async (c: any) => {
         break;
     }
 
+    // 💡 マルチモーダル対応（複数画像）
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (qMatches && qMatches.length === 3) {
-          userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+          userParts.push({
+            inline_data: {
+              mime_type: qMatches[1],
+              data: qMatches[2]
+            }
+          });
         }
       }
     } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+        userParts.push({
+          inline_data: {
+            mime_type: qMatches[1],
+            data: qMatches[2]
+          }
+        });
       }
     }
 
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: aMatches[1], data: aMatches[2] } });
+        userParts.push({
+          inline_data: {
+            mime_type: aMatches[1],
+            data: aMatches[2]
+          }
+        });
       }
     }
 
@@ -548,7 +450,10 @@ const handleChat = async (c: any) => {
         role: h.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: h.content }]
       })),
-      { role: 'user', parts: userParts }
+      {
+        role: 'user',
+        parts: userParts
+      }
     ];
 
     const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
@@ -560,7 +465,9 @@ const handleChat = async (c: any) => {
         'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstructionText }] },
+        systemInstruction: {
+          parts: [{ text: systemInstructionText }]
+        },
         contents
       })
     });
@@ -572,43 +479,43 @@ const handleChat = async (c: any) => {
     }
 
     const data = (await vertexRes.json()) as any;
-    
     const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
     let imageUrl: string | undefined = undefined;
-    const shouldGenerateImage = isVisualAidRequested && appType !== "kanji-grammar-checker-ocr";
-    let promptToUse = shouldGenerateImage ? body.visualPrompt : undefined;
+    let promptToUse = body.visualPrompt;
+    const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt);
 
-    if (shouldGenerateImage && !promptToUse) {
+    if (!promptToUse && shouldGenerateImage) {
       promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
     }
 
-    if (shouldGenerateImage && promptToUse) {
+    if (promptToUse) {
       try {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: "global",
-          serviceAccountKey: serviceAccountKey
+          location: region
         });
-
         if (base64Image) {
-          imageUrl = `data:image/jpeg;base64,${base64Image}`;
+          imageUrl = `data:image/png;base64,${base64Image}`;
         }
       } catch (err: any) {
-        console.error("❌ Image generation exception caught in /chat:", err.message);
+        console.error("❌ Image generation error in /chat:", err.message);
       }
     }
 
+    // 💡 クレジットの引き落とし実行
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
+        console.log(`💳 [Supabase] Deducting credits for user: ${effectiveUserId}, Feature: ${featureKey} (Cost: ${requiredCredits})`);
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
+        console.log("✅ [Supabase] Credits deducted successfully.");
       } catch (deductErr: any) {
         console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message);
       }
     }
 
-    return c.json({
+    return c.json({ 
       reply: aiReply,
       imageUrl: imageUrl 
     });
@@ -617,10 +524,6 @@ const handleChat = async (c: any) => {
     console.error("❌ Unhandled exception in /chat:", e.message, e.stack);
     return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
-};
-
-// 💡 エンドポイントの登録
-app.post('/api/chat', handleChat);
-app.post('/chat', handleChat);
+});
 
 export default app;
