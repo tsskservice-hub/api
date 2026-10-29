@@ -146,6 +146,53 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
+// 💡 ユーザーの要求に合わせた OpenAI TTS（音声合成）エンドポイント
+app.post('/api/test-tts', async (c) => {
+  try {
+    const { text } = await c.req.json<{ text: string }>();
+    const apiKey = c.env.OPENAI_API_KEY;
+
+    if (!apiKey) {
+      console.error("❌ OPENAI_API_KEY is not configured in environment variables.");
+      return c.json({ error: 'OPENAI_API_KEY is not configured' }, 500);
+    }
+
+    if (!text) {
+      return c.json({ error: 'Text is required for TTS' }, 400);
+    }
+
+    const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "tts-1",
+        input: text,
+        voice: "fable", // ユーザー様指定の fable ボイス
+      }),
+    });
+
+    if (!ttsRes.ok) {
+      const errText = await ttsRes.text();
+      console.error("❌ OpenAI TTS API Error:", errText);
+      return c.json({ error: `OpenAI TTS Error: ${errText}` }, 500);
+    }
+
+    const audioBuffer = await ttsRes.arrayBuffer();
+
+    return new Response(audioBuffer, {
+      headers: {
+        "Content-Type": "audio/mpeg",
+      },
+    });
+  } catch (err: any) {
+    console.error("❌ Unhandled exception in /api/test-tts:", err.message);
+    return c.json({ error: err.message || 'Internal Server Error' }, 500);
+  }
+});
+
 // 💡 yamato-portal 側から教育データ・ナレッジを一括同期するエンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
