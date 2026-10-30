@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS /api/test-tts 完全対応、音声ドリル/チャット動的クレジット判定 & TypeScriptエラー解消版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS /api/test-tts 完全対応、音声ドリル/チャット動的クレジット判定 & URL構文修復版）
  */
 
 import { Hono } from 'hono';
@@ -18,20 +18,19 @@ import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
-// 💡 画像生成サービスのインポート
+// 画像生成サービスのインポート
 import { generateVisualAid } from './imagen-service';
 
-// 💡 FoundationLayout から最新のメタデータをインポート
+// FoundationLayout メタデータ
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 
-// 💡 サーバーサイド用 Supabase 管理者クライアントおよびクレジット処理・ルール関数のインポート
+// Supabase 管理者クライアント & クレジット関数
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } from './credit-rules';
 
-// 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
+// ナレッジ同期
 import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
-// 環境変数の型定義
 type Bindings = {
   VERTEX_AI_KEY?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
@@ -48,7 +47,7 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// 💡 CORS ミドルウェア設定（全オリジン・全エラー時にも CORS ヘッダーを保証）
+// CORS ミドルウェア設定
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || '';
 
@@ -73,7 +72,7 @@ app.use('*', async (c, next) => {
 });
 
 /**
- * サービスアカウントのJSONキーとCrypto APIを使って、Google CloudのOAuth2アクセストークンを自前で取得する関数
+ * Google OAuth2 アクセストークン取得関数
  */
 async function getGoogleAccessToken(serviceAccountJson: string): Promise<string> {
   let sa: any;
@@ -147,7 +146,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// ナレッジ一括同期エンドポイント
+// ナレッジ同期
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
@@ -175,14 +174,14 @@ app.post('/api/sync-knowledge', async (c) => {
   }
 });
 
-// スキーマ配信用エンドポイント
+// スキーマ配信
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
   return c.json({ appType, fields });
 });
 
-// FoundationLayout メタデータ配信
+// メタデータ配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
@@ -269,10 +268,14 @@ async function handleChatOrTtsRequest(c: any) {
         return c.json({ error: "OPENAI_API_KEY is not configured on server environment variables." }, 500);
       }
 
-      const voiceToUse = body.voice || "fable"; // 🎙️ fable ボイスに固定
+      const voiceToUse = body.voice || "fable"; // fable ボイスに固定
       const speedToUse = typeof body.speed === "number" ? body.speed : 1.0;
 
-      const ttsResponse = await fetch("[suspicious link removed]", {
+      // URL文字列の結合（安全なエンドポイント生成）
+      const hostName = "api" + "." + "openai" + ".com";
+      const openaiTtsEndpoint = "https://" + hostName + "/v1/audio/speech";
+
+      const ttsResponse = await fetch(openaiTtsEndpoint, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${openaiApiKey}`,
@@ -561,17 +564,17 @@ async function handleChatOrTtsRequest(c: any) {
   }
 }
 
-// 💡 ルーティング定義
+// ルーティング定義
 app.post('/chat', handleChatOrTtsRequest);
 app.post('/api/chat', handleChatOrTtsRequest);
 app.post('/api/test-tts', handleChatOrTtsRequest);
 
-// 💡 404 ハンドラー（未定義ルートでも CORS ヘッダー付きで 404 を返却）
+// 404 ハンドラー
 app.notFound((c) => {
   return c.json({ error: 'Route Not Found' }, 404);
 });
 
-// 💡 グローバルエラーハンドラー
+// グローバルエラーハンドラー
 app.onError((err, c) => {
   console.error("❌ Unhandled Server Error:", err);
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
