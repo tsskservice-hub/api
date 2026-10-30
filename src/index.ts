@@ -48,17 +48,18 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>();
 
-// CORS設定
+// CORS設定（修正版）
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || '';
 
   const isAllowed = 
+    !origin ||
     origin.endsWith('jptutoraiyamato.com') ||
-    origin.endsWith('.pages.dev') ||
+    origin.includes('.pages.dev') ||
     origin.includes('localhost') ||
     origin.includes('127.0.0.1');
 
-  const allowedOrigin = isAllowed ? origin : 'https://jptutoraiyamato.com';
+  const allowedOrigin = (isAllowed && origin) ? origin : 'https://jptutoraiyamato.com';
 
   c.header('Access-Control-Allow-Origin', allowedOrigin);
   c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -261,7 +262,6 @@ app.get('/api/ecosystem-metadata', (c) => {
 // チャット送信用エンドポイント: POST /chat
 app.post('/chat', async (c) => {
   try {
-    // 💡 c.req.json() にジェネリクスで型を明示し、プロパティの型推論エラーを解消
     const body = await c.req.json<{ 
       message: string; 
       chatHistory?: { role: string; content: string }[];
@@ -324,7 +324,7 @@ app.post('/chat', async (c) => {
     // 💡 1. リクエスト内容から必要コストを自動判定
     const requiredCredits = determineRequiredCreditsFromPayload(body);
 
-    // 💡 2. featureKey を正確に確定（音声会話ドリル、テキストチャット、単一画像、複数画像を分離）
+    // 💡 2. featureKey を正確に確定
     const featureKey: FeatureKey = (body.featureKey && (body.featureKey in SERVER_CREDIT_COSTS))
       ? body.featureKey
       : requiredCredits >= 10 ? 'mockFull' 
