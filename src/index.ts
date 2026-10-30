@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS /api/test-tts 完全対応、音声ドリル/チャット動的クレジット判定 & URL構文修復版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS/STT 完全対応、構文エラー100%防止・全機能統合版）
  */
 
 import { Hono } from 'hono';
@@ -18,17 +18,10 @@ import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
-// 画像生成サービスのインポート
 import { generateVisualAid } from './imagen-service';
-
-// FoundationLayout メタデータ
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
-
-// Supabase 管理者クライアント & クレジット関数
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } from './credit-rules';
-
-// ナレッジ同期
 import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
 type Bindings = {
@@ -72,7 +65,7 @@ app.use('*', async (c, next) => {
 });
 
 /**
- * Google OAuth2 アクセストークン取得関数
+ * Google Access Token 取得関数
  */
 async function getGoogleAccessToken(serviceAccountJson: string): Promise<string> {
   let sa: any;
@@ -82,7 +75,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
     const preview = typeof serviceAccountJson === 'string' 
       ? serviceAccountJson.slice(0, 50) 
       : String(serviceAccountJson);
-    throw new Error(`Service Account JSON parse failed. Received preview: "${preview}" | Original error: ${e.message}`);
+    throw new Error('Service Account JSON parse failed. Preview: ' + preview + ' | Error: ' + (e?.message || String(e)));
   }
 
   const privateKeyPem = sa.private_key;
@@ -92,10 +85,11 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const exp = now + 3600;
 
   const header = { alg: "RS256", typ: "JWT" };
+  const tokenHost = "oauth2" + "." + "googleapis" + ".com";
   const claimSet = {
     iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-    aud: "https://oauth2.googleapis.com/token",
+    scope: "https://" + "www" + "." + "googleapis" + ".com/auth/cloud-platform",
+    aud: "https://" + tokenHost + "/token",
     exp: exp,
     iat: now
   };
@@ -103,7 +97,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const base64UrlEncode = (str: string) => 
     btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
-  const unsignedJwt = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claimSet))}`;
+  const unsignedJwt = base64UrlEncode(JSON.stringify(header)) + "." + base64UrlEncode(JSON.stringify(claimSet));
 
   const pemHeader = "-----BEGIN PRIVATE KEY-----";
   const pemFooter = "-----END PRIVATE KEY-----";
@@ -129,29 +123,30 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   );
 
   const signatureBase64Url = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
-  const jwt = `${unsignedJwt}.${signatureBase64Url}`;
+  const jwt = unsignedJwt + "." + signatureBase64Url;
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+  const tokenEndpoint = "https://" + tokenHost + "/token";
+  const tokenRes = await fetch(tokenEndpoint, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
+    body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" + jwt
   });
 
   if (!tokenRes.ok) {
     const errText = await tokenRes.text();
-    throw new Error(`Failed to get Google Access Token: ${errText}`);
+    throw new Error("Failed to get Google Access Token: " + errText);
   }
 
   const tokenData = (await tokenRes.json()) as any;
   return tokenData.access_token;
 }
 
-// ナレッジ同期
+// 💡 ナレッジ一括同期エンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
 
-  if (expectedKey && authHeader !== `Bearer ${expectedKey}`) {
+  if (expectedKey && authHeader !== 'Bearer ' + expectedKey) {
     console.warn("⚠️ Unauthorized sync attempt detected.");
     return c.json({ success: false, error: 'Unauthorized: Invalid or missing API key' }, 401);
   }
@@ -169,19 +164,19 @@ app.post('/api/sync-knowledge', async (c) => {
       timestamp: new Date().toISOString()
     });
   } catch (err: any) {
-    console.error("❌ Failed to sync knowledge:", err.message);
-    return c.json({ success: false, error: err.message }, 500);
+    console.error("❌ Failed to sync knowledge:", err?.message || String(err));
+    return c.json({ success: false, error: err?.message || String(err) }, 500);
   }
 });
 
-// スキーマ配信
+// スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
   const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
   return c.json({ appType, fields });
 });
 
-// メタデータ配信
+// 💡 FoundationLayout メタデータ配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
@@ -214,76 +209,113 @@ app.get('/api/ecosystem-metadata', (c) => {
 });
 
 /**
+ * 🎙️ 音声認識（STT: Speech-to-Text）ハンドラー関数
+ * /api/test-stt 及び /api/stt エンドポイントで使用
+ */
+async function handleSttRequest(c: any) {
+  try {
+    const origin = c.req.header('Origin') || '*';
+    const openaiApiKey = c.env.OPENAI_API_KEY;
+
+    if (!openaiApiKey) {
+      console.error("❌ OPENAI_API_KEY is not configured.");
+      return c.json({ error: "OPENAI_API_KEY is not configured on server environment variables." }, 500);
+    }
+
+    const formData = await c.req.formData();
+    const audioFile = formData.get("audio") || formData.get("file") || formData.get("blob");
+
+    if (!audioFile) {
+      return c.json({ error: "No audio file provided in request FormData." }, 400);
+    }
+
+    const whisperFormData = new FormData();
+    whisperFormData.append("file", audioFile, "recording.webm");
+    whisperFormData.append("model", "whisper-1");
+    whisperFormData.append("language", "ja");
+
+    const openaiHost = "api" + "." + "openai" + "." + "com";
+    const whisperEndpoint = "https://" + openaiHost + "/v1/audio/transcriptions";
+
+    const whisperRes = await fetch(whisperEndpoint, {
+      method: "POST",
+      headers: {
+        "Authorization": "Bearer " + openaiApiKey,
+      },
+      body: whisperFormData,
+    });
+
+    if (!whisperRes.ok) {
+      const errText = await whisperRes.text();
+      console.error("❌ OpenAI Whisper API Error:", whisperRes.status, errText);
+      return c.json({ error: "OpenAI Whisper API Error (" + whisperRes.status + "): " + errText }, whisperRes.status);
+    }
+
+    const whisperData = (await whisperRes.json()) as any;
+    const transcribedText = whisperData.text || "";
+
+    console.log("✅ [Whisper STT] Transcribed successfully:", transcribedText);
+
+    return c.json({
+      userText: transcribedText,
+      text: transcribedText,
+      success: true,
+    }, 200, {
+      "Access-Control-Allow-Origin": origin,
+      "Access-Control-Allow-Credentials": "true",
+    });
+
+  } catch (err: any) {
+    console.error("❌ Exception in STT Handler:", err);
+    return c.json({ error: err?.message || "Internal STT Error" }, 500);
+  }
+}
+
+/**
  * 💡 共通チャット ＆ 音声生成（OpenAI TTS）ハンドラー関数
  */
 async function handleChatOrTtsRequest(c: any) {
   try {
-    const body = (await c.req.json()) as { 
-      speakText?: string;
-      textToSpeak?: string;
-      text?: string;
-      input?: string;
-      prompt?: string;
-      voice?: string;
-      speed?: number;
-      message?: string; 
-      chatHistory?: { role: string; content: string }[];
-      history?: { role: string; content: string }[];
-      assignedQuestion?: string;
-      questionImageBase64?: string;        
-      questionImagesBase64?: string[];    
-      learningPace?: string;
-      userNickname?: string;
-      appType?: string;
-      userId?: string;
-      visualPrompt?: string;
-      requestVisualAid?: boolean;
-      imageBase64?: string; 
-      featureKey?: FeatureKey;
-      isMockFull?: boolean;
-      isMockSection?: "1" | "2";
-      isVoiceMode?: "drill" | "elaborate";
-      pace?: string;
-      selectedTextType?: string;
-      studentEssay?: string;
-      exactCharacterCount?: number;
-      writingSection?: "section2b" | "section3" | "other";
-      timeZone?: string;
-      cityName?: string;
-      systemPrompt?: string;
-    };
-
-    // 💡 1. リクエストボディ内の全可能性からTTS読み上げ対象テキストを検出
+    const body = (await c.req.json()) as any;
     const isTtsEndpoint = c.req.path.includes("test-tts");
-    const rawTtsText = body.speakText || body.textToSpeak || body.text || body.input || body.prompt || (isTtsEndpoint ? body.message : undefined);
-    const cleanedTtsText = rawTtsText ? rawTtsText.replace(/<rt>.*?<\/rt>/g, "").replace(/<[^>]*>/g, "").replace(/【.*?】/g, "").replace(/※.*$/gm, "").trim() : "";
 
-    // 🔊 2. TTS テキストが存在する場合は OpenAI TTS (fable ボイス) で音声バイナリを生成
-    if (cleanedTtsText) {
-      console.log(`🔊 [OpenAI TTS] Generating audio for: "${cleanedTtsText.slice(0, 30)}..."`);
+    const rawTtsText = body.speakText || body.textToSpeak || body.text || body.input || body.prompt || (isTtsEndpoint ? body.message : undefined);
+    
+    let cleanedTtsText = "";
+    if (rawTtsText && typeof rawTtsText === "string") {
+      cleanedTtsText = rawTtsText
+        .replace(/<rt>.*?<\/rt>/g, "")
+        .replace(/<[^>]*>/g, "")
+        .replace(/【.*?】/g, "")
+        .replace(/※.*$/gm, "")
+        .trim();
+    }
+
+    // 🔊 1. TTS テキストが存在する場合は OpenAI TTS (fable ボイス) で音声バイナリを生成
+    if (cleanedTtsText || isTtsEndpoint) {
+      const textToSpeak = cleanedTtsText || body.message || "こんにちは";
+      console.log("🔊 [OpenAI TTS] Generating audio for: " + textToSpeak.slice(0, 30));
       const openaiApiKey = c.env.OPENAI_API_KEY;
 
       if (!openaiApiKey) {
-        console.error("❌ Configuration error: OPENAI_API_KEY is missing on Cloudflare Workers environment variables.");
+        console.error("❌ OPENAI_API_KEY is not configured.");
         return c.json({ error: "OPENAI_API_KEY is not configured on server environment variables." }, 500);
       }
 
-      const voiceToUse = body.voice || "fable"; // fable ボイスに固定
+      const voiceToUse = body.voice || "fable";
       const speedToUse = typeof body.speed === "number" ? body.speed : 1.0;
-
-      // URL文字列の結合（安全なエンドポイント生成）
-      const hostName = "api" + "." + "openai" + ".com";
-      const openaiTtsEndpoint = "https://" + hostName + "/v1/audio/speech";
+      const openaiHost = "api" + "." + "openai" + "." + "com";
+      const openaiTtsEndpoint = "https://" + openaiHost + "/v1/audio/speech";
 
       const ttsResponse = await fetch(openaiTtsEndpoint, {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${openaiApiKey}`,
+          "Authorization": "Bearer " + openaiApiKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
           model: "tts-1",
-          input: cleanedTtsText,
+          input: textToSpeak,
           voice: voiceToUse,
           speed: speedToUse,
         }),
@@ -292,7 +324,7 @@ async function handleChatOrTtsRequest(c: any) {
       if (!ttsResponse.ok) {
         const errText = await ttsResponse.text();
         console.error("❌ OpenAI TTS API Error:", ttsResponse.status, errText);
-        return c.json({ error: `OpenAI TTS API Error (${ttsResponse.status}): ${errText}` }, 500);
+        return c.json({ error: "OpenAI TTS API Error (" + ttsResponse.status + "): " + errText }, ttsResponse.status);
       }
 
       const audioBuffer = await ttsResponse.arrayBuffer();
@@ -306,7 +338,7 @@ async function handleChatOrTtsRequest(c: any) {
       });
     }
 
-    // 💬 3. 通常の AI チャット（Gemini / Vertex AI）処理
+    // 💬 2. 通常の AI チャット（Gemini / Vertex AI）処理
     const effectiveUserId = body.userId || "test-guest-user";
 
     console.log("📥 Received /chat request:", {
@@ -359,7 +391,7 @@ async function handleChatOrTtsRequest(c: any) {
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
       if (supabaseAdmin) {
-        console.log(`🔍 [Supabase] Checking credits for user: ${effectiveUserId}, Feature: ${featureKey}, Required: ${requiredCredits}`);
+        console.log("🔍 [Supabase] Checking credits for user: " + effectiveUserId + ", Feature: " + featureKey + ", Required: " + requiredCredits);
         
         if (effectiveUserId !== "test-guest-user") {
           const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
@@ -378,8 +410,8 @@ async function handleChatOrTtsRequest(c: any) {
 
             return c.json({
               error: "PARTIAL_SHORTAGE",
-              message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
-              reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
+              message: "この機能には " + requiredCredits + " クレジット必要ですが、現在の残高は " + currentCredits + " クレジットです。",
+              reply: "Insufficient credits. This action requires " + requiredCredits + " credits (you have " + currentCredits + ").",
               currentCredits,
               requiredCredits
             }, 402);
@@ -387,12 +419,12 @@ async function handleChatOrTtsRequest(c: any) {
         }
       }
     } catch (dbErr: any) {
-      console.error("❌ [Supabase] Database check exception caught:", dbErr.message);
+      console.error("❌ [Supabase] Database check exception caught:", dbErr?.message || String(dbErr));
     }
 
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // システムプロンプトの構築
+    // システム指示プロンプトの構築
     let systemInstructionText = "";
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
@@ -401,7 +433,7 @@ async function handleChatOrTtsRequest(c: any) {
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
-      faqList: syncedKnowledge.faqList || [],
+      faqList: syncedKnowledge?.faqList || [],
       currentTurn: history.length + 1,
       pace: body.learningPace || body.pace,
       selectedTextType: body.selectedTextType,
@@ -497,13 +529,14 @@ async function handleChatOrTtsRequest(c: any) {
       { role: 'user', parts: userParts }
     ];
 
-    const vertexUrl = `https://${region}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
+    const vertexHost = region + "-aiplatform" + "." + "googleapis" + "." + "com";
+    const vertexUrl = "https://" + vertexHost + "/v1/projects/" + projectId + "/locations/" + region + "/publishers/google/models/gemini-2.5-flash:generateContent";
 
     const vertexRes = await fetch(vertexUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
+        'Authorization': 'Bearer ' + accessToken
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstructionText }] },
@@ -514,7 +547,7 @@ async function handleChatOrTtsRequest(c: any) {
     if (!vertexRes.ok) {
       const errText = await vertexRes.text();
       console.error("❌ Vertex AI API Error:", errText);
-      return c.json({ error: `Vertex AI API Error: ${errText}` }, 500);
+      return c.json({ error: "Vertex AI API Error: " + errText }, 500);
     }
 
     const data = (await vertexRes.json()) as any;
@@ -525,7 +558,7 @@ async function handleChatOrTtsRequest(c: any) {
     const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt);
 
     if (!promptToUse && shouldGenerateImage) {
-      promptToUse = `Educational instructional diagram and visual aid for Japanese language learners explaining: ${userMessage}. Clean layout, high quality, professional illustration style.`;
+      promptToUse = "Educational instructional diagram and visual aid for Japanese language learners explaining: " + userMessage + ". Clean layout, high quality, professional illustration style.";
     }
 
     if (promptToUse) {
@@ -536,20 +569,20 @@ async function handleChatOrTtsRequest(c: any) {
           location: region
         });
         if (base64Image) {
-          imageUrl = `data:image/png;base64,${base64Image}`;
+          imageUrl = "data:image/png;base64," + base64Image;
         }
       } catch (err: any) {
-        console.error("❌ Image generation error in /chat:", err.message);
+        console.error("❌ Image generation error in /chat:", err?.message || String(err));
       }
     }
 
     // クレジット引き落としの実行
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
-        console.log(`💳 [Supabase] Deducting credits for user: ${effectiveUserId}, Feature: ${featureKey} (Cost: ${requiredCredits})`);
+        console.log("💳 [Supabase] Deducting credits for user: " + effectiveUserId + ", Feature: " + featureKey + " (Cost: " + requiredCredits + ")");
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
       } catch (deductErr: any) {
-        console.error("❌ [Supabase] Failed to deduct credits:", deductErr.message);
+        console.error("❌ [Supabase] Failed to deduct credits:", deductErr?.message || String(deductErr));
       }
     }
 
@@ -559,22 +592,26 @@ async function handleChatOrTtsRequest(c: any) {
     });
 
   } catch (e: any) {
-    console.error("❌ Unhandled exception in /chat or /api/test-tts:", e.message, e.stack);
-    return c.json({ error: e.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
+    console.error("❌ Unhandled exception in /chat or /api/test-tts:", e?.message || String(e));
+    return c.json({ error: e?.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
   }
 }
 
-// ルーティング定義
+// 💡 ルーティング定義
 app.post('/chat', handleChatOrTtsRequest);
 app.post('/api/chat', handleChatOrTtsRequest);
 app.post('/api/test-tts', handleChatOrTtsRequest);
 
-// 404 ハンドラー
+// 🎙️ STT (Speech-to-Text) エンドポイント
+app.post('/api/test-stt', handleSttRequest);
+app.post('/api/stt', handleSttRequest);
+
+// 💡 404 ハンドラー（未定義ルートでも CORS ヘッダー付きで 404 を返却）
 app.notFound((c) => {
   return c.json({ error: 'Route Not Found' }, 404);
 });
 
-// グローバルエラーハンドラー
+// 💡 グローバルエラーハンドラー
 app.onError((err, c) => {
   console.error("❌ Unhandled Server Error:", err);
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
