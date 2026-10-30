@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS /api/test-tts 完全対応、音声ドリル/チャット動的クレジット判定 & CORS完全保証版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS /api/test-tts 完全対応、音声ドリル/チャット動的クレジット判定 & TypeScriptエラー解消版）
  */
 
 import { Hono } from 'hono';
@@ -31,7 +31,7 @@ import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } 
 // 💡 yamato-portal から同期されたナレッジデータを管理するモジュールのインポート
 import { getSyncedKnowledge, setSyncedKnowledge } from './api-sync-knowledge';
 
-// 認証・設定 Bindings
+// 環境変数の型定義
 type Bindings = {
   VERTEX_AI_KEY?: string;
   GOOGLE_SERVICE_ACCOUNT_JSON?: string;
@@ -147,7 +147,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// 💡 ナレッジ一括同期エンドポイント
+// ナレッジ一括同期エンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
@@ -182,7 +182,7 @@ app.get('/api/schema/:appType', (c) => {
   return c.json({ appType, fields });
 });
 
-// 💡 FoundationLayout メタデータ配信
+// FoundationLayout メタデータ配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
@@ -221,6 +221,10 @@ async function handleChatOrTtsRequest(c: any) {
   try {
     const body = (await c.req.json()) as { 
       speakText?: string;
+      textToSpeak?: string;
+      text?: string;
+      input?: string;
+      prompt?: string;
       voice?: string;
       speed?: number;
       message?: string; 
@@ -250,9 +254,14 @@ async function handleChatOrTtsRequest(c: any) {
       systemPrompt?: string;
     };
 
-    // 🔊 1. speakText が指定されている場合は OpenAI TTS (fable ボイス) で音声バイナリを生成
-    if (body.speakText) {
-      console.log(`🔊 [OpenAI TTS] Generating audio for: "${body.speakText.slice(0, 30)}..."`);
+    // 💡 1. リクエストボディ内の全可能性からTTS読み上げ対象テキストを検出
+    const isTtsEndpoint = c.req.path.includes("test-tts");
+    const rawTtsText = body.speakText || body.textToSpeak || body.text || body.input || body.prompt || (isTtsEndpoint ? body.message : undefined);
+    const cleanedTtsText = rawTtsText ? rawTtsText.replace(/<rt>.*?<\/rt>/g, "").replace(/<[^>]*>/g, "").replace(/【.*?】/g, "").replace(/※.*$/gm, "").trim() : "";
+
+    // 🔊 2. TTS テキストが存在する場合は OpenAI TTS (fable ボイス) で音声バイナリを生成
+    if (cleanedTtsText) {
+      console.log(`🔊 [OpenAI TTS] Generating audio for: "${cleanedTtsText.slice(0, 30)}..."`);
       const openaiApiKey = c.env.OPENAI_API_KEY;
 
       if (!openaiApiKey) {
@@ -271,7 +280,7 @@ async function handleChatOrTtsRequest(c: any) {
         },
         body: JSON.stringify({
           model: "tts-1",
-          input: body.speakText,
+          input: cleanedTtsText,
           voice: voiceToUse,
           speed: speedToUse,
         }),
@@ -294,7 +303,7 @@ async function handleChatOrTtsRequest(c: any) {
       });
     }
 
-    // 💬 2. 通常の AI チャット（Gemini / Vertex AI）処理
+    // 💬 3. 通常の AI チャット（Gemini / Vertex AI）処理
     const effectiveUserId = body.userId || "test-guest-user";
 
     console.log("📥 Received /chat request:", {
@@ -552,7 +561,7 @@ async function handleChatOrTtsRequest(c: any) {
   }
 }
 
-// 💡 ルーティング定義：すべてのチャット ＆ TTS リクエストを受け取れるようエイリアスを配置
+// 💡 ルーティング定義
 app.post('/chat', handleChatOrTtsRequest);
 app.post('/api/chat', handleChatOrTtsRequest);
 app.post('/api/test-tts', handleChatOrTtsRequest);
