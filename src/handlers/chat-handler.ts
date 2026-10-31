@@ -194,7 +194,7 @@ export async function handleChatOrTtsRequest(c: Context) {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: region,
+          location: global,
           serviceAccountKey: serviceAccountKey, // 💡 認証キーを確実に引き渡す
         });
         if (base64Image) {

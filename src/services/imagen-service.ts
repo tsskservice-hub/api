@@ -1,31 +1,30 @@
 /**
  * @file src/services/imagen-service.ts
- * @description Google Vertex AI (Imagen 3) を用いた学習補助用画像生成モジュール
+ * @description Gemini 3.1 Flash Lite Image (Global エンドポイント) による画像生成ユーティリティ
  */
 
-export interface GenerateVisualAidParams {
+export interface GenerateVisualAidOptions {
   promptText: string;
-  projectId: string;
+  projectId?: string;
   location?: string;
   serviceAccountKey?: string;
 }
 
-/**
- * 🎨 Google Vertex AI (Imagen 3) を呼び出して画像を Base64 形式で生成する
- */
-export async function generateVisualAid({
-  promptText,
-  projectId,
-  location = "us-central1",
-  serviceAccountKey,
-}: GenerateVisualAidParams): Promise<string | null> {
-  try {
-    if (!serviceAccountKey || !projectId) {
-      console.error("❌ [imagen-service.ts] serviceAccountKey または projectId が不足しています。");
-      return null;
-    }
+export async function generateVisualAid(
+  options: GenerateVisualAidOptions
+): Promise<string | null> {
+  const projectId = options.projectId;
+  // 💡 Gemini 3.1 Flash Lite Image は "global" リージョンで呼び出します
+  const location = options.location || "global";
+  const serviceAccountKey = options.serviceAccountKey;
 
-    // 🔐 サービスアカウント JSON から Access Token を動的生成
+  if (!projectId || !serviceAccountKey) {
+    console.error("❌ [imagen-service.ts] projectId または serviceAccountKey が不足しています。");
+    return null;
+  }
+
+  try {
+    // 🔐 Google Access Token 取得
     let sa: any;
     try {
       sa = JSON.parse(serviceAccountKey);
@@ -91,72 +90,80 @@ export async function generateVisualAid({
     });
 
     if (!tokenRes.ok) {
-      const tokenErr = await tokenRes.text();
-      console.error("❌ [imagen-service.ts] Google Access Token 取得失敗:", tokenErr);
+      const errText = await tokenRes.text();
+      console.error("❌ [imagen-service.ts] Access Token 取得失敗:", errText);
       return null;
     }
 
     const tokenData = (await tokenRes.json()) as any;
     const accessToken = tokenData.access_token;
 
-    // 💡 正しい Imagen 3 モデル名へ修正
-    const modelName = "imagen-3.0-generate-001";
-    const vertexHost = location + "-aiplatform." + gDomain + ".com";
-    const endpointUrl =
-      "https://" +
-      vertexHost +
-      "/v1/projects/" +
-      projectId +
-      "/locations/" +
-      location +
-      "/publishers/google/models/" +
-      modelName +
-      ":predict";
+    const modelName = "gemini-3.1-flash-lite-image";
 
-    console.log("🎨 [imagen-service.ts] Imagen 3 リクエスト開始:", {
-      model: modelName,
-      location,
-      projectId,
-    });
+    // 💡 location が "global" の場合は aiplatform.googleapis.com を直接指定
+    const vertexUrl =
+      location === "global"
+        ? `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${modelName}:generateContent`
+        : `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
 
-    const res = await fetch(endpointUrl, {
+    console.log(`🚀 [imagen-service.ts] 送信先URL: ${vertexUrl}`);
+
+    const response = await fetch(vertexUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: "Bearer " + accessToken,
+        Authorization: `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
-        instances: [
-          {
-            prompt: promptText,
+        contents: {
+          role: "user",
+          parts: {
+            text: options.promptText,
           },
-        ],
-        parameters: {
-          sampleCount: 1,
-          aspectRatio: "1:1",
-          outputOptions: {
-            mimeType: "image/png",
-          },
+        },
+        generation_config: {
+          response_modalities: ["TEXT", "IMAGE"],
         },
       }),
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("❌ [imagen-service.ts API エラー]:", errText);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("❌ [imagen-service.ts エラーレスポンス]:", errText);
       return null;
     }
 
-    const data = (await res.json()) as any;
-    const base64ImageBytes = data.predictions?.[0]?.bytesBase64Encoded;
+    const data = (await response.json()) as any;
+    const candidate = data.candidates?.[0];
+    const parts = candidate?.content?.parts;
 
-    if (!base64ImageBytes) {
-      console.warn("⚠️ [imagen-service.ts] 画像の Base64 バイト列が返却されませんでした。");
+    if (!parts) {
+      console.error("❌ レスポンスに parts が含まれません:", JSON.stringify(data));
       return null;
     }
 
-    console.log("✅ [imagen-service.ts] 画像生成成功 (サイズ:", base64ImageBytes.length, "bytes)");
-    return base64ImageBytes;
+    let base64Image: string | undefined = undefined;
+    const partsArray = Array.isArray(parts) ? parts : [parts];
+
+    for (const part of partsArray) {
+      const inlineData = part.inlineData || part.inline_data;
+      if (inlineData && inlineData.data) {
+        base64Image = inlineData.data;
+        break;
+      }
+      if (part.text && part.text.length > 200 && !part.text.includes(" ")) {
+        base64Image = part.text.trim();
+        break;
+      }
+    }
+
+    if (!base64Image) {
+      console.error("❌ 応答パーツに画像データが見つかりませんでした。");
+      return null;
+    }
+
+    console.log("✅ [Gemini 3.1 Flash Lite Image] 画像の抽出に成功しました");
+    return base64Image;
   } catch (err: any) {
     console.error("❌ [imagen-service.ts 例外発生]:", err?.message || String(err));
     return null;
