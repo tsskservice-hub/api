@@ -15,7 +15,7 @@ export async function generateVisualAid(
 ): Promise<string | null> {
   const projectId = options.projectId;
   // 💡 Gemini 3.1 Flash Lite Image は "global" リージョンで呼び出します
-  const location = options.location || "global";
+  const location = options.location || "us-central1";
   const serviceAccountKey = options.serviceAccountKey;
 
   if (!projectId || !serviceAccountKey) {
