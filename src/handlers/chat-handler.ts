@@ -34,7 +34,7 @@ export async function handleChatOrTtsRequest(c: Context) {
         .trim();
     }
 
-    // 🔊 1. TTS リクエストの場合 (audio-service.ts を利用)
+    // 🔊 1. TTS リクエストの場合
     if (cleanedTtsText || isTtsEndpoint) {
       const textToSpeak = cleanedTtsText || body.message || "こんにちは";
       const openaiApiKey = c.env.OPENAI_API_KEY;
@@ -74,16 +74,16 @@ export async function handleChatOrTtsRequest(c: Context) {
       }, 500);
     }
 
-    // 💳 クレジットの事前チェック (credit-handler.ts を利用)
+    // 💳 クレジットの事前チェック
     const creditCheck = await checkCreditBalance(c, body, effectiveUserId);
     if (!creditCheck.hasPermission) {
       return creditCheck.errorResponse!;
     }
 
-    // 🔐 Google Access Token 取得 (google-auth.ts を利用)
+    // 🔐 Google Access Token 取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 📜 システム指示プロンプトの構築 (prompt-dispatcher.ts を利用)
+    // 📜 システム指示プロンプトの構築
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
 
@@ -174,7 +174,8 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     const data = (await vertexRes.json()) as any;
     const aiReply =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+
+  data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
@@ -187,13 +188,14 @@ export async function handleChatOrTtsRequest(c: Context) {
         ". Clean layout, high quality, professional illustration style.";
     }
 
-    // 🎨 画像生成AI処理 (image-service.ts を利用)
+    // 🎨 画像生成AI処理 (imagen-service.ts を利用)
     if (promptToUse) {
       try {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
           location: region,
+          serviceAccountKey: serviceAccountKey, // 💡 認証キーを確実に引き渡す
         });
         if (base64Image) {
           imageUrl = "data:image/png;base64," + base64Image;
@@ -203,7 +205,7 @@ export async function handleChatOrTtsRequest(c: Context) {
       }
     }
 
-    // 💳 クレジット引き落としの実行 (credit-handler.ts を利用)
+    // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
     return c.json({ reply: aiReply, imageUrl: imageUrl });
