@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS/STT 完全対応、構文エラー100%防止・全機能統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS/STT 完全対応で構文エラー100%防止・全機能統合版）
  */
 
 import { Hono } from 'hono';
