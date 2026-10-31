@@ -1,6 +1,6 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（プロンプト未設定厳密エラー検知・OpenAI TTS/STT対応版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（URL伏字修復・プロンプト未設定厳密エラー検知・OpenAI TTS/STT対応版）
  */
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
@@ -137,7 +137,7 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   return tokenData.access_token;
 }
 
-// 💡 ナレッジ一括同期エンドポイント
+// ナレッジ一括同期エンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
@@ -179,7 +179,7 @@ app.get('/api/schema/:appType', (c) => {
   return c.json({ appType, fields });
 });
 
-// 💡 FoundationLayout メタデータ配信
+// FoundationLayout メタデータ配信
 app.get('/api/ecosystem-metadata', (c) => {
   const metadata = {
     foundation: FOUNDATION_LAYOUT_META,
@@ -494,7 +494,6 @@ async function handleChatOrTtsRequest(c: any) {
         systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
         break;
       default:
-        // 💡 個別プロンプトが明示されておらず、未登録の appType の場合はエラーにする
         if (body.systemPrompt) {
           systemInstructionText = body.systemPrompt;
         } else {
@@ -518,20 +517,20 @@ async function handleChatOrTtsRequest(c: any) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (qMatches && qMatches.length === 3) {
-          userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+          userParts.push({ inline_data: { mime_type: qMatches, data: qMatches } });
         }
       }
     } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+        userParts.push({ inline_data: { mime_type: qMatches, data: qMatches } });
       }
     }
 
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: aMatches[1], data: aMatches[2] } });
+        userParts.push({ inline_data: { mime_type: aMatches, data: aMatches } });
       }
     }
 
@@ -632,21 +631,21 @@ async function handleChatOrTtsRequest(c: any) {
   }
 }
 
-// 💡 ルーティング定義
+// ルーティング定義
 app.post('/chat', handleChatOrTtsRequest);
 app.post('/api/chat', handleChatOrTtsRequest);
 app.post('/api/test-tts', handleChatOrTtsRequest);
 
-// 🎙️ STT (Speech-to-Text) エンドポイント
+// STT (Speech-to-Text) エンドポイント
 app.post('/api/test-stt', handleSttRequest);
 app.post('/api/stt', handleSttRequest);
 
-// 💡 404 ハンドラー（未定義ルートでも CORS ヘッダー付きで 404 を返却）
+// 404 ハンドラー
 app.notFound((c) => {
   return c.json({ error: 'Route Not Found' }, 404);
 });
 
-// 💡 グローバルエラーハンドラー
+// グローバルエラーハンドラー
 app.onError((err, c) => {
   console.error("❌ Unhandled Server Error:", err);
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
