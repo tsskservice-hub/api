@@ -1,8 +1,7 @@
 /**
  * @file index.ts
- * @description HonoベースのCloudflare Workers用APIサーバー（OpenAI TTS/STT 完全対応で構文エラー100%防止・全機能統合版）
+ * @description HonoベースのCloudflare Workers用APIサーバー（プロンプト未設定厳密エラー検知・OpenAI TTS/STT対応版）
  */
-
 import { Hono } from 'hono';
 import { buildAiYamatoContext } from './context';
 import { buildConciergePrompt } from './concierge';
@@ -17,7 +16,6 @@ import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
 import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 import { buildImageExplanationYamatoPrompt } from './image-explanation';
-
 import { generateVisualAid } from './imagen-service';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from './supabase-admin';
@@ -43,14 +41,12 @@ const app = new Hono<{ Bindings: Bindings }>();
 // CORS ミドルウェア設定
 app.use('*', async (c, next) => {
   const origin = c.req.header('Origin') || '';
-
-  const isAllowed = 
+  const isAllowed =
     origin.endsWith('jptutoraiyamato.com') ||
     origin.endsWith('.pages.dev') ||
     origin.includes('pages.dev') ||
     origin.includes('localhost') ||
     origin.includes('127.0.0.1');
-
   const allowedOrigin = isAllowed ? origin : 'https://jptutoraiyamato.com';
 
   c.header('Access-Control-Allow-Origin', allowedOrigin);
@@ -72,9 +68,8 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   try {
     sa = JSON.parse(serviceAccountJson);
   } catch (e: any) {
-    const preview = typeof serviceAccountJson === 'string' 
-      ? serviceAccountJson.slice(0, 50) 
-      : String(serviceAccountJson);
+    const preview =
+      typeof serviceAccountJson === 'string' ? serviceAccountJson.slice(0, 50) : String(serviceAccountJson);
     throw new Error('Service Account JSON parse failed. Preview: ' + preview + ' | Error: ' + (e?.message || String(e)));
   }
 
@@ -85,23 +80,24 @@ async function getGoogleAccessToken(serviceAccountJson: string): Promise<string>
   const exp = now + 3600;
 
   const header = { alg: "RS256", typ: "JWT" };
-  const tokenHost = "oauth2" + "." + "googleapis" + ".com";
+  const tokenHost = "[suspicious link removed]";
   const claimSet = {
     iss: clientEmail,
-    scope: "https://" + "www" + "." + "googleapis" + ".com/auth/cloud-platform",
+    scope: "[suspicious link removed]",
     aud: "https://" + tokenHost + "/token",
     exp: exp,
     iat: now
   };
 
-  const base64UrlEncode = (str: string) => 
+  const base64UrlEncode = (str: string) =>
     btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
-
-  const unsignedJwt = base64UrlEncode(JSON.stringify(header)) + "." + base64UrlEncode(JSON.stringify(claimSet));
+  const unsignedJwt =
+    base64UrlEncode(JSON.stringify(header)) + "." + base64UrlEncode(JSON.stringify(claimSet));
 
   const pemHeader = "-----BEGIN PRIVATE KEY-----";
   const pemFooter = "-----END PRIVATE KEY-----";
   let pemContents = privateKeyPem.replace(pemHeader, "").replace(pemFooter, "").replace(/\s/g, "");
+
   const binaryDerString = atob(pemContents);
   const binaryDer = new Uint8Array(binaryDerString.length);
   for (let i = 0; i < binaryDerString.length; i++) {
@@ -153,13 +149,11 @@ app.post('/api/sync-knowledge', async (c) => {
 
   try {
     const body = (await c.req.json()) as any;
-    
     if (typeof setSyncedKnowledge === 'function') {
       await setSyncedKnowledge(body, c.env);
     }
-
-    return c.json({ 
-      success: true, 
+    return c.json({
+      success: true,
       message: "Knowledge base synchronized successfully.",
       timestamp: new Date().toISOString()
     });
@@ -172,7 +166,16 @@ app.post('/api/sync-knowledge', async (c) => {
 // スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {
   const appType = c.req.param('appType');
-  const fields = ['userNickname', 'timeZone', 'cityName', 'studentEssay', 'selectedTextType', 'pace', 'assignedQuestion', 'writingSection'];
+  const fields = [
+    'userNickname',
+    'timeZone',
+    'cityName',
+    'studentEssay',
+    'selectedTextType',
+    'pace',
+    'assignedQuestion',
+    'writingSection'
+  ];
   return c.json({ appType, fields });
 });
 
@@ -201,16 +204,11 @@ app.get('/api/ecosystem-metadata', (c) => {
       role: "対話UIの汎用テンプレート・操縦士コックピット",
     }
   };
-
-  return c.json({
-    success: true,
-    metadata,
-  });
+  return c.json({ success: true, metadata });
 });
 
 /**
  * 🎙️ 音声認識（STT: Speech-to-Text）ハンドラー関数
- * /api/test-stt 及び /api/stt エンドポイントで使用
  */
 async function handleSttRequest(c: any) {
   try {
@@ -234,7 +232,7 @@ async function handleSttRequest(c: any) {
     whisperFormData.append("model", "whisper-1");
     whisperFormData.append("language", "ja");
 
-    const openaiHost = "api" + "." + "openai" + "." + "com";
+    const openaiHost = "[suspicious link removed]";
     const whisperEndpoint = "https://" + openaiHost + "/v1/audio/transcriptions";
 
     const whisperRes = await fetch(whisperEndpoint, {
@@ -256,15 +254,14 @@ async function handleSttRequest(c: any) {
 
     console.log("✅ [Whisper STT] Transcribed successfully:", transcribedText);
 
-    return c.json({
-      userText: transcribedText,
-      text: transcribedText,
-      success: true,
-    }, 200, {
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Credentials": "true",
-    });
-
+    return c.json(
+      { userText: transcribedText, text: transcribedText, success: true },
+      200,
+      {
+        "Access-Control-Allow-Origin": origin,
+        "Access-Control-Allow-Credentials": "true",
+      }
+    );
   } catch (err: any) {
     console.error("❌ Exception in STT Handler:", err);
     return c.json({ error: err?.message || "Internal STT Error" }, 500);
@@ -279,8 +276,14 @@ async function handleChatOrTtsRequest(c: any) {
     const body = (await c.req.json()) as any;
     const isTtsEndpoint = c.req.path.includes("test-tts");
 
-    const rawTtsText = body.speakText || body.textToSpeak || body.text || body.input || body.prompt || (isTtsEndpoint ? body.message : undefined);
-    
+    const rawTtsText =
+      body.speakText ||
+      body.textToSpeak ||
+      body.text ||
+      body.input ||
+      body.prompt ||
+      (isTtsEndpoint ? body.message : undefined);
+
     let cleanedTtsText = "";
     if (rawTtsText && typeof rawTtsText === "string") {
       cleanedTtsText = rawTtsText
@@ -304,7 +307,7 @@ async function handleChatOrTtsRequest(c: any) {
 
       const voiceToUse = body.voice || "fable";
       const speedToUse = typeof body.speed === "number" ? body.speed : 1.0;
-      const openaiHost = "api" + "." + "openai" + "." + "com";
+      const openaiHost = "[suspicious link removed]";
       const openaiTtsEndpoint = "https://" + openaiHost + "/v1/audio/speech";
 
       const ttsResponse = await fetch(openaiTtsEndpoint, {
@@ -355,7 +358,9 @@ async function handleChatOrTtsRequest(c: any) {
     const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
 
-    const hasAnyQuestionImages = Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) || Boolean(body.questionImageBase64);
+    const hasAnyQuestionImages =
+      Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) ||
+      Boolean(body.questionImageBase64);
 
     if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
       return c.json({ error: 'Message or image is required' }, 400);
@@ -367,7 +372,10 @@ async function handleChatOrTtsRequest(c: any) {
 
     if (!serviceAccountKey || !projectId) {
       console.error("❌ Configuration error: VERTEX_AI_KEY/GOOGLE_SERVICE_ACCOUNT_JSON or VERTEX_AI_PROJECT_ID is missing.");
-      return c.json({ error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured', reply: 'Server configuration error: AI keys are missing.' }, 500);
+      return c.json({
+        error: 'VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured',
+        reply: 'Server configuration error: AI keys are missing.'
+      }, 500);
     }
 
     // 必要クレジット数の自動判定
@@ -375,24 +383,24 @@ async function handleChatOrTtsRequest(c: any) {
 
     const featureKey: FeatureKey = (body.featureKey && (body.featureKey in SERVER_CREDIT_COSTS))
       ? body.featureKey
-      : requiredCredits >= 10 ? 'mockFull' 
-      : requiredCredits === 6 ? (
-          (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") ? 'mockSection2'
-          : (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") ? 'mockSection1'
-          : 'multiImageAi'
-        )
-      : (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate')) ? 'voiceElaborate'
-      : requiredCredits === 4 ? 'imageAi' 
-      : (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill')) ? 'voiceDrill' 
+      : requiredCredits >= 10
+      ? 'mockFull'
+      : requiredCredits === 6
+      ? ( (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") ? 'mockSection2' : (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") ? 'mockSection1' : 'multiImageAi' )
+      : (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate'))
+      ? 'voiceElaborate'
+      : requiredCredits === 4
+      ? 'imageAi'
+      : (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill'))
+      ? 'voiceDrill'
       : 'textAi';
 
     let supabaseAdmin: any = null;
-
     try {
       supabaseAdmin = getSupabaseAdmin(c.env);
       if (supabaseAdmin) {
         console.log("🔍 [Supabase] Checking credits for user: " + effectiveUserId + ", Feature: " + featureKey + ", Required: " + requiredCredits);
-        
+
         if (effectiveUserId !== "test-guest-user") {
           const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
           const { hasEnough, currentCredits } = creditCheck;
@@ -428,8 +436,6 @@ async function handleChatOrTtsRequest(c: any) {
     let systemInstructionText = "";
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
-
-    const basePromptOverride = body.systemPrompt || c.env.AIYAMATO_SYSTEM_PROMPT || "";
 
     const promptOptions: any = {
       userNickname: body.userNickname || "my friend",
@@ -468,6 +474,7 @@ async function handleChatOrTtsRequest(c: any) {
         systemInstructionText = await buildEoyOralDrillPrompt(promptOptions);
         break;
       case "eoy-oral-elaborate":
+      case "eoy-oral-elaborate-chat":
         systemInstructionText = await buildEoyOralElaboratePrompt(promptOptions);
         break;
       case "eoy-oral-mock":
@@ -487,13 +494,20 @@ async function handleChatOrTtsRequest(c: any) {
         systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
         break;
       default:
-        systemInstructionText = basePromptOverride || buildAiYamatoContext({
-          assignedQuestion: body.assignedQuestion || "",
-          learningPace: body.learningPace || "normal",
-          userNickname: body.userNickname || "生徒さん",
-          appType: appType as any,
-          dialogueCount: history.length + 1,
-        });
+        // 💡 個別プロンプトが明示されておらず、未登録の appType の場合はエラーにする
+        if (body.systemPrompt) {
+          systemInstructionText = body.systemPrompt;
+        } else {
+          console.error(`❌ Unregistered appType or missing prompt builder: '${appType}'`);
+          return c.json(
+            {
+              error: "UNREGISTERED_APP_PROMPT",
+              message: `専用プロンプトが未設定の appType です: '${appType}'。管理者へエラー報告してください。`,
+              appType: appType,
+            },
+            400
+          );
+        }
         break;
     }
 
@@ -524,24 +538,31 @@ async function handleChatOrTtsRequest(c: any) {
     const contents = [
       ...history.map((h: any) => ({
         role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.content }]
+        parts: [{ text: h.content }],
       })),
-      { role: 'user', parts: userParts }
+      { role: 'user', parts: userParts },
     ];
 
-    const vertexHost = region + "-aiplatform" + "." + "googleapis" + "." + "com";
-    const vertexUrl = "https://" + vertexHost + "/v1/projects/" + projectId + "/locations/" + region + "/publishers/google/models/gemini-2.5-flash:generateContent";
+    const vertexHost = region + "-aiplatform.googleapis.com";
+    const vertexUrl =
+      "https://" +
+      vertexHost +
+      "/v1/projects/" +
+      projectId +
+      "/locations/" +
+      region +
+      "/publishers/google/models/gemini-2.5-flash:generateContent";
 
     const vertexRes = await fetch(vertexUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + accessToken
+        'Authorization': 'Bearer ' + accessToken,
       },
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemInstructionText }] },
-        contents
-      })
+        contents,
+      }),
     });
 
     if (!vertexRes.ok) {
@@ -551,14 +572,18 @@ async function handleChatOrTtsRequest(c: any) {
     }
 
     const data = (await vertexRes.json()) as any;
-    const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+    const aiReply =
+      data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
 
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
     const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt);
 
     if (!promptToUse && shouldGenerateImage) {
-      promptToUse = "Educational instructional diagram and visual aid for Japanese language learners explaining: " + userMessage + ". Clean layout, high quality, professional illustration style.";
+      promptToUse =
+        "Educational instructional diagram and visual aid for Japanese language learners explaining: " +
+        userMessage +
+        ". Clean layout, high quality, professional illustration style.";
     }
 
     if (promptToUse) {
@@ -566,7 +591,7 @@ async function handleChatOrTtsRequest(c: any) {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: region
+          location: region,
         });
         if (base64Image) {
           imageUrl = "data:image/png;base64," + base64Image;
@@ -579,21 +604,31 @@ async function handleChatOrTtsRequest(c: any) {
     // クレジット引き落としの実行
     if (supabaseAdmin && effectiveUserId !== "test-guest-user") {
       try {
-        console.log("💳 [Supabase] Deducting credits for user: " + effectiveUserId + ", Feature: " + featureKey + " (Cost: " + requiredCredits + ")");
+        console.log(
+          "💳 [Supabase] Deducting credits for user: " +
+            effectiveUserId +
+            ", Feature: " +
+            featureKey +
+            " (Cost: " +
+            requiredCredits +
+            ")"
+        );
         await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
       } catch (deductErr: any) {
         console.error("❌ [Supabase] Failed to deduct credits:", deductErr?.message || String(deductErr));
       }
     }
 
-    return c.json({ 
-      reply: aiReply,
-      imageUrl: imageUrl 
-    });
-
+    return c.json({ reply: aiReply, imageUrl: imageUrl });
   } catch (e: any) {
     console.error("❌ Unhandled exception in /chat or /api/test-tts:", e?.message || String(e));
-    return c.json({ error: e?.message || 'Internal Server Error', reply: 'Sorry, an error occurred while processing your request.' }, 500);
+    return c.json(
+      {
+        error: e?.message || 'Internal Server Error',
+        reply: 'Sorry, an error occurred while processing your request.',
+      },
+      500
+    );
   }
 }
 
