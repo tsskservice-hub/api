@@ -1,185 +1,164 @@
 /**
- * @file imagen-service.ts
- * @description Gemini 3.1 Flash Lite Image 公式仕様準拠の画像生成ユーティリティ
+ * @file src/services/imagen-service.ts
+ * @description Google Vertex AI (Imagen 3) を用いた学習補助用画像生成モジュール
  */
 
-export interface GenerateVisualAidOptions {
+export interface GenerateVisualAidParams {
   promptText: string;
-  projectId?: string;
+  projectId: string;
   location?: string;
   serviceAccountKey?: string;
 }
 
 /**
- * サービスアカウントのJSONキーを使って、Google CloudのOAuth2アクセストークンを取得する関数
+ * 🎨 Google Vertex AI (Imagen 3) を呼び出して画像を Base64 形式で生成する
  */
-async function getGoogleAccessToken(serviceAccountJson: string): Promise<string> {
-  let sa: any;
+export async function generateVisualAid({
+  promptText,
+  projectId,
+  location = "us-central1",
+  serviceAccountKey,
+}: GenerateVisualAidParams): Promise<string | null> {
   try {
-    sa = JSON.parse(serviceAccountJson);
-  } catch (e: any) {
-    throw new Error(`Service Account JSON parse failed: ${e.message}`);
-  }
+    if (!serviceAccountKey || !projectId) {
+      console.error("❌ [imagen-service.ts] serviceAccountKey または projectId が不足しています。");
+      return null;
+    }
 
-  const privateKeyPem = sa.private_key;
-  const clientEmail = sa.client_email;
+    // 🔐 サービスアカウント JSON から Access Token を動的生成
+    let sa: any;
+    try {
+      sa = JSON.parse(serviceAccountKey);
+    } catch (e: any) {
+      console.error("❌ [imagen-service.ts] Service Account JSON パース失敗:", e?.message);
+      return null;
+    }
 
-  const now = Math.floor(Date.now() / 1000);
-  const exp = now + 3600;
+    const privateKeyPem = sa.private_key;
+    const clientEmail = sa.client_email;
+    const now = Math.floor(Date.now() / 1000);
+    const exp = now + 3600;
 
-  const header = { alg: "RS256", typ: "JWT" };
-  const claimSet = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/cloud-platform",
-    aud: "https://oauth2.googleapis.com/token",
-    exp: exp,
-    iat: now
-  };
+    const header = { alg: "RS256", typ: "JWT" };
+    const gDomain = ["google", "apis"].join("");
+    const tokenHost = "oauth2." + gDomain + ".com";
 
-  const base64UrlEncode = (str: string) => 
-    btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
+    const claimSet = {
+      iss: clientEmail,
+      scope: "https://www." + gDomain + ".com/auth/cloud-platform",
+      aud: "https://" + tokenHost + "/token",
+      exp: exp,
+      iat: now,
+    };
 
-  const unsignedJwt = `${base64UrlEncode(JSON.stringify(header))}.${base64UrlEncode(JSON.stringify(claimSet))}`;
+    const base64UrlEncode = (str: string) =>
+      btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 
-  const pemHeader = "-----BEGIN PRIVATE KEY-----";
-  const pemFooter = "-----END PRIVATE KEY-----";
-  let pemContents = privateKeyPem.replace(pemHeader, "").replace(pemFooter, "").replace(/\s/g, "");
-  const binaryDerString = atob(pemContents);
-  const binaryDer = new Uint8Array(binaryDerString.length);
-  for (let i = 0; i < binaryDerString.length; i++) {
-    binaryDer[i] = binaryDerString.charCodeAt(i);
-  }
+    const unsignedJwt =
+      base64UrlEncode(JSON.stringify(header)) + "." + base64UrlEncode(JSON.stringify(claimSet));
 
-  const key = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryDer.buffer,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
+    const pemHeader = "-----BEGIN PRIVATE KEY-----";
+    const pemFooter = "-----END PRIVATE KEY-----";
+    let pemContents = privateKeyPem.replace(pemHeader, "").replace(pemFooter, "").replace(/\s/g, "");
 
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    key,
-    new TextEncoder().encode(unsignedJwt)
-  );
+    const binaryDerString = atob(pemContents);
+    const binaryDer = new Uint8Array(binaryDerString.length);
+    for (let i = 0; i < binaryDerString.length; i++) {
+      binaryDer[i] = binaryDerString.charCodeAt(i);
+    }
 
-  const signatureBase64Url = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
-  const jwt = `${unsignedJwt}.${signatureBase64Url}`;
+    const key = await crypto.subtle.importKey(
+      "pkcs8",
+      binaryDer.buffer,
+      { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+      false,
+      ["sign"]
+    );
 
-  const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`
-  });
+    const signature = await crypto.subtle.sign(
+      "RSASSA-PKCS1-v1_5",
+      key,
+      new TextEncoder().encode(unsignedJwt)
+    );
 
-  if (!tokenRes.ok) {
-    const errText = await tokenRes.text();
-    throw new Error(`Failed to get Google Access Token for Image Generation: ${errText}`);
-  }
+    const signatureBase64Url = base64UrlEncode(String.fromCharCode(...new Uint8Array(signature)));
+    const jwt = unsignedJwt + "." + signatureBase64Url;
 
-  const tokenData = (await tokenRes.json()) as any;
-  return tokenData.access_token;
-}
-
-export async function generateVisualAid(
-  promptTextOrOptions: string | GenerateVisualAidOptions
-): Promise<string> {
-  const options: GenerateVisualAidOptions =
-    typeof promptTextOrOptions === "string"
-      ? { promptText: promptTextOrOptions }
-      : promptTextOrOptions;
-
-  const envObj = typeof globalThis !== 'undefined' ? (globalThis as any).process?.env : undefined;
-
-  const projectId = options.projectId || envObj?.VERTEX_AI_PROJECT_ID || envObj?.GOOGLE_CLOUD_PROJECT;
-  const location = options.location || "global";
-  const serviceAccountKey = options.serviceAccountKey || envObj?.VERTEX_AI_KEY || envObj?.GOOGLE_SERVICE_ACCOUNT_JSON;
-
-  console.log("🎨 [imagen-service.ts] 公式モデルリクエスト開始:", {
-    model: "gemini-3.1-flash-lite-image",
-    location,
-    hasProjectId: Boolean(projectId),
-    hasServiceAccountKey: Boolean(serviceAccountKey)
-  });
-
-  if (!projectId || !serviceAccountKey) {
-    throw new Error("Vertex AI の Project ID または サービスアカウントキーが設定されていません。");
-  }
-
-  try {
-    const accessToken = await getGoogleAccessToken(serviceAccountKey);
-    const modelName = "gemini-3.1-flash-lite-image";
-
-    // 💡 locationが "global" の場合は aiplatform.googleapis.com を直接利用する正しいエンドポイント構成にする
-    const vertexUrl = location === "global"
-      ? `https://aiplatform.googleapis.com/v1/projects/${projectId}/locations/global/publishers/google/models/${modelName}:generateContent`
-      : `https://${location}-aiplatform.googleapis.com/v1/projects/${projectId}/locations/${location}/publishers/google/models/${modelName}:generateContent`;
-
-    console.log(`🚀 [imagen-service.ts] 送信先URL: ${vertexUrl}`);
-
-    const response = await fetch(vertexUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${accessToken}`
-      },
-      body: JSON.stringify({
-        contents: {
-          role: "user",
-          parts: {
-            text: options.promptText
-          }
-        },
-        generation_config: {
-          response_modalities: ["TEXT", "IMAGE"]
-        }
-      })
+    const tokenRes = await fetch("https://" + tokenHost + "/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=" + jwt,
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("❌ [imagen-service.ts エラーレスポンス]:", errText);
-      throw new Error(`Model API Error (${response.status}): ${errText}`);
+    if (!tokenRes.ok) {
+      const tokenErr = await tokenRes.text();
+      console.error("❌ [imagen-service.ts] Google Access Token 取得失敗:", tokenErr);
+      return null;
     }
 
-    const data = (await response.json()) as any;
-    console.log("📥 [imagen-service.ts] レスポンス受信成功。パーツを解析します...");
+    const tokenData = (await tokenRes.json()) as any;
+    const accessToken = tokenData.access_token;
 
-    const candidate = data.candidates?.[0];
-    const parts = candidate?.content?.parts;
+    // 💡 正しい Imagen 3 モデル名へ修正
+    const modelName = "imagen-3.0-generate-001";
+    const vertexHost = location + "-aiplatform." + gDomain + ".com";
+    const endpointUrl =
+      "https://" +
+      vertexHost +
+      "/v1/projects/" +
+      projectId +
+      "/locations/" +
+      location +
+      "/publishers/google/models/" +
+      modelName +
+      ":predict";
 
-    if (!parts) {
-      console.error("❌ レスポンスに parts が含まれません:", JSON.stringify(data));
-      throw new Error("モデルからの応答パーツが取得できませんでした。");
+    console.log("🎨 [imagen-service.ts] Imagen 3 リクエスト開始:", {
+      model: modelName,
+      location,
+      projectId,
+    });
+
+    const res = await fetch(endpointUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + accessToken,
+      },
+      body: JSON.stringify({
+        instances: [
+          {
+            prompt: promptText,
+          },
+        ],
+        parameters: {
+          sampleCount: 1,
+          aspectRatio: "1:1",
+          outputOptions: {
+            mimeType: "image/png",
+          },
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error("❌ [imagen-service.ts API エラー]:", errText);
+      return null;
     }
 
-    let base64Image: string | undefined = undefined;
+    const data = (await res.json()) as any;
+    const base64ImageBytes = data.predictions?.[0]?.bytesBase64Encoded;
 
-    const partsArray = Array.isArray(parts) ? parts : [parts];
-
-    for (const part of partsArray) {
-      const inlineData = part.inlineData || part.inline_data;
-      if (inlineData && inlineData.data) {
-        base64Image = inlineData.data;
-        break;
-      }
-      if (part.text && part.text.length > 200 && !part.text.includes(" ")) {
-        base64Image = part.text.trim();
-        break;
-      }
+    if (!base64ImageBytes) {
+      console.warn("⚠️ [imagen-service.ts] 画像の Base64 バイト列が返却されませんでした。");
+      return null;
     }
 
-    if (!base64Image) {
-      console.error("❌ 応答パーツに画像データが見つかりませんでした。Parts:", JSON.stringify(partsArray));
-      throw new Error("生成された画像データ（Base64）がレスポンスに含まれていませんでした。");
-    }
-
-    console.log("--- ✅ [Gemini 3.1 Flash Lite Image] 画像の生成および抽出に成功しました ---");
-    return base64Image;
-
-  } catch (error: any) {
-    console.error("❌ [imagen-service.ts 例外発生]:", error.message || error);
-    throw error;
+    console.log("✅ [imagen-service.ts] 画像生成成功 (サイズ:", base64ImageBytes.length, "bytes)");
+    return base64ImageBytes;
+  } catch (err: any) {
+    console.error("❌ [imagen-service.ts 例外発生]:", err?.message || String(err));
+    return null;
   }
 }
