@@ -118,20 +118,20 @@ export async function handleChatOrTtsRequest(c: Context) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (qMatches && qMatches.length === 3) {
-          userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+          userParts.push({ inline_data: { mime_type: qMatches[8], data: qMatches[9] } });
         }
       }
     } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
+        userParts.push({ inline_data: { mime_type: qMatches[8], data: qMatches[9] } });
       }
     }
 
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: aMatches[1], data: aMatches[2] } });
+        userParts.push({ inline_data: { mime_type: aMatches[8], data: aMatches[9] } });
       }
     }
 
@@ -173,10 +173,10 @@ export async function handleChatOrTtsRequest(c: Context) {
     }
 
     const data = (await vertexRes.json()) as any;
+    
     const aiReply =
-
   data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
-
+    
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
     const shouldGenerateImage = Boolean(body.requestVisualAid || body.visualPrompt);
@@ -194,11 +194,11 @@ export async function handleChatOrTtsRequest(c: Context) {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: "us-central1",
-          serviceAccountKey: serviceAccountKey, // 💡 認証キーを確実に引き渡す
+          location: "global", // 💡 リージョンを "global" に指定
+          serviceAccountKey: serviceAccountKey,
         });
         if (base64Image) {
-          imageUrl = "data:image/png;base64," + base64Image;
+          imageUrl = base64Image;
         }
       } catch (err: any) {
         console.error("❌ Image generation error in /chat:", err?.message || String(err));

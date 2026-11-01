@@ -15,7 +15,7 @@ export async function generateVisualAid(
 ): Promise<string | null> {
   const projectId = options.projectId;
   // 💡 Gemini 3.1 Flash Lite Image は "global" リージョンで呼び出します
-  const location = options.location || "us-central1";
+  const location = options.location || "global";
   const serviceAccountKey = options.serviceAccountKey;
 
   if (!projectId || !serviceAccountKey) {
@@ -143,12 +143,16 @@ export async function generateVisualAid(
     }
 
     let base64Image: string | undefined = undefined;
+    let mimeType: string = "image/jpeg";
     const partsArray = Array.isArray(parts) ? parts : [parts];
 
     for (const part of partsArray) {
       const inlineData = part.inlineData || part.inline_data;
       if (inlineData && inlineData.data) {
         base64Image = inlineData.data;
+        if (inlineData.mimeType || inlineData.mime_type) {
+          mimeType = inlineData.mimeType || inlineData.mime_type;
+        }
         break;
       }
       if (part.text && part.text.length > 200 && !part.text.includes(" ")) {
@@ -163,7 +167,12 @@ export async function generateVisualAid(
     }
 
     console.log("✅ [Gemini 3.1 Flash Lite Image] 画像の抽出に成功しました");
-    return base64Image;
+
+    // 💡 Data URL 形式で返却
+    if (base64Image.startsWith("data:")) {
+      return base64Image;
+    }
+    return `data:${mimeType};base64,${base64Image}`;
   } catch (err: any) {
     console.error("❌ [imagen-service.ts 例外発生]:", err?.message || String(err));
     return null;
