@@ -42,46 +42,91 @@ export async function getSyncedKnowledge(env: any) {
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // 💡 app_knowledge テーブルからすべての行を一括取得し、個別の key ごとに組み立てる
-    const { data, error } = await supabase
-      .from('app_knowledge')
+    // 1. kl_app テーブルから各種設定（legal, pricePlans など）の行を一括取得し、個別の key ごとに組み立てる
+    const { data: appData, error: appError } = await supabase
+      .from('kl_app')
       .select('key, data, updated_at');
-
-    if (error || !data || data.length === 0) {
-      console.warn("⚠️ [api-sync-knowledge] No knowledge found in Supabase yet:", error?.message);
-      return DEFAULT_KNOWLEDGE;
-    }
 
     // 取得した行データを結合するためのベースオブジェクト
     let combinedData: any = { ...DEFAULT_KNOWLEDGE };
     let latestUpdatedAt = null;
 
-    for (const row of data) {
-      const k = row.key;
-      const val = row.data || {};
+    if (!appError && appData) {
+      for (const row of appData) {
+        const k = row.key;
+        const val = row.data || {};
 
-      // 更新日時の新しいものを記録
-      if (!latestUpdatedAt || (row.updated_at && row.updated_at > latestUpdatedAt)) {
-        latestUpdatedAt = row.updated_at;
-      }
+        // 更新日時の新しいものを記録
+        if (!latestUpdatedAt || (row.updated_at && row.updated_at > latestUpdatedAt)) {
+          latestUpdatedAt = row.updated_at;
+        }
 
-      // 💡 登録したキーに応じて適切なプロパティにマッピングする
-      if (k === 'LATEST_KNOWLEDGE') {
-        // 従来の単一JSON一括保存データがある場合
-        combinedData = { ...combinedData, ...val };
-      } else if (k === 'LEGAL_CONTENTS' || k === 'legalContent') {
-        combinedData.legalContent = val;
-      } else if (k === 'DAILY_QUIZZES' || k === 'quizzes') {
-        // val が { quizzes: [...] } の形、または直接 [...] の形どちらにも対応
-        combinedData.quizzes = val.quizzes || val;
-      } else if (k === 'pricePlans' || k === 'PRICE_PLANS') {
-        combinedData.pricePlans = val;
-      } else if (k === 'portalContent') {
-        combinedData.portalContent = val;
-      } else {
-        // その他のカスタムキーがあればそのままキー名で保持
-        combinedData[k.toLowerCase()] = val;
+        // 登録したキーに応じて適切なプロパティにマッピングする
+        if (k === 'LATEST_KNOWLEDGE') {
+          // 従来の単一JSON一括保存データがある場合
+          combinedData = { ...combinedData, ...val };
+        } else if (k === 'LEGAL_CONTENTS' || k === 'legalContent') {
+          combinedData.legalContent = val;
+        } else if (k === 'DAILY_QUIZZES' || k === 'quizzes') {
+          // val が { quizzes: [...] } の形、または直接 [...] の形どちらにも対応
+          combinedData.quizzes = val.quizzes || val;
+        } else if (k === 'pricePlans' || k === 'PRICE_PLANS') {
+          combinedData.pricePlans = val;
+        } else if (k === 'portalContent') {
+          combinedData.portalContent = val;
+        } else {
+          // その他のカスタムキーがあればそのままキー名で保持
+          combinedData[k.toLowerCase()] = val;
+        }
       }
+    } else {
+      console.warn("⚠️ [api-sync-knowledge] No app config found in kl_app or error occurred:", appError?.message);
+    }
+
+    // 2. kl_character テーブルから最新の漢字データを直接取得し、vceResources.kanjiList にマッピング
+    const { data: kanjiRows, error: kanjiError } = await supabase
+      .from('kl_character')
+      .select('id, character, meaning, kun_display, on_display, grade_level, vce_group')
+      .eq('char_type', 'kanji');
+
+    if (!kanjiError && kanjiRows) {
+      const formattedKanjiList = kanjiRows.map(item => ({
+        id: item.id, // ID付き
+        kanji: item.character,
+        meaning: item.meaning,
+        reading: item.kun_display || item.on_display,
+        vceGroup: item.vce_group || 'general',
+      }));
+
+      if (!combinedData.vceResources) {
+        combinedData.vceResources = {};
+      }
+      combinedData.vceResources.kanjiList = formattedKanjiList;
+    } else {
+      console.warn("⚠️ [api-sync-knowledge] Failed to fetch kanji data from kl_character:", kanjiError?.message);
+    }
+
+    // 3. kl_vocabulary テーブルから最新の語彙データを直接取得し、vceResources.vceVocabularyList にマッピング
+    const { data: vocabRows, error: vocabError } = await supabase
+      .from('kl_vocabulary')
+      .select('id, word, meaning, reading, romaji, vce_group');
+
+    if (!vocabError && vocabRows) {
+      const formattedVocabList = vocabRows.map(item => ({
+        id: item.id, // ID付き
+        word: item.word,
+        meaning: item.meaning,
+        reading: item.reading,
+        romaji: item.romaji,
+        vceGroup: item.vce_group || 'general',
+      }));
+
+      if (!combinedData.vceResources) {
+        combinedData.vceResources = {};
+      }
+      combinedData.vceResources.vceVocabularyList = formattedVocabList;
+    } else {
+      console.warn("⚠️ [api-sync-knowledge] Failed to fetch vocabulary data from kl_vocabulary:", vocabError?.message);
     }
 
     return {
@@ -95,7 +140,7 @@ export async function getSyncedKnowledge(env: any) {
 }
 
 /**
- * 💡 yamato-portal 側から送信されたナレッジデータを Supabase に保存・更新する
+ * 💡 yamato-portal 側から送信されたナレッジデータを Supabase に保存・更新する（kl_app 用）
  */
 export async function setSyncedKnowledge(body: any, env: any) {
   const supabaseUrl = env?.SUPABASE_URL;
@@ -108,12 +153,11 @@ export async function setSyncedKnowledge(body: any, env: any) {
   const supabase = createClient(supabaseUrl, supabaseKey);
 
   // 送信されたデータ構造に応じて upsert を実行
-  // 例として全体データを 'LATEST_KNOWLEDGE' キーとして一括保存、または各プロパティごとに分割保存する方式に対応
   const payloadKey = body.key || 'LATEST_KNOWLEDGE';
   const payloadData = body.data || body;
 
   const { error } = await supabase
-    .from('app_knowledge')
+    .from('kl_app')
     .upsert(
       {
         key: payloadKey,
