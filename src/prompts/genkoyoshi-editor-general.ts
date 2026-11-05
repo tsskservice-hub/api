@@ -2,8 +2,8 @@
  * @file genkoyoshi-editor-general.ts
  * @description 一般向け原稿用紙エディターヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ対応版）
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
  * 一般向け原稿用紙エディター固有のオプション定義（portalDataを排除）

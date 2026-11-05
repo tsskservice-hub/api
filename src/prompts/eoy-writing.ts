@@ -2,8 +2,8 @@
  * @file eoy-writing.ts
  * @description EOY Writing Practice ヤマト専用プロンプト生成関数（ディスクレパンシーチェック・End of Session 判定・ペース別即時出力完全版）
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge";
 
 /**
  * ★ 画像が添付された際の OCR・文字起こしおよびディスクレパンシーチェック（CASE 0/1/2）のルール

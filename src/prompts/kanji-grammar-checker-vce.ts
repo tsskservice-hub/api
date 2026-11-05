@@ -3,7 +3,7 @@
  * @description VCE漢字・文法チェッカー専用のヤマトAIプロンプト生成モジュール（portalData完全排除・同期ナレッジ対応版）。
  */
 
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
 
 /**
  * VCE漢字・文法チェッカー固有のオプション型定義

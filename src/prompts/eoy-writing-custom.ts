@@ -2,8 +2,8 @@
  * @file eoy-writing-custom.ts
  * @description VCE筆記試験 3セクション対応 Custom EOY Writing Practice ヤマト専用プロンプト生成関数（kanji-list.json連動・セクション別文字数基準版）
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 同期済みナレッジ（kanji-list.json等）をインポート
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 同期済みナレッジ（kanji-list.json等）をインポート
 
 export interface EoyWritingCustomPromptOptions extends YamatoApiCommonOptions {
   pace?: string;

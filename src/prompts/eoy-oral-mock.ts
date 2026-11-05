@@ -1,9 +1,9 @@
 /**
- * @file eoy-oral-elaborate.ts
- * @description EOY Oral Elaborate ヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ対応版）
+ * @file eoy-oral-mock.ts
+ * @description EOY Oral Mock Exam ヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ対応版）
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
  * 口頭試験用のペース別トーン調整
@@ -37,9 +37,9 @@ function getOralPaceInstruction(pace?: string): string {
 }
 
 /**
- * EOY Oral Elaborate 固有のオプション定義（portalDataを排除）
+ * EOY Oral Mock Exam 固有のオプション定義（portalDataを排除）
  */
-export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
+export interface EoyOralMockPromptOptions extends YamatoApiCommonOptions {
   /** ペースや難易度の調整用（"accelerated", "normal", "steady" など） */
   pace?: string;
   timeZone?: string;
@@ -47,9 +47,9 @@ export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
 }
 
 /**
- * EOY Oral Elaborate 固有のアイデンティティとコンテキストを構築する関数
+ * EOY Oral Mock Exam 固有のアイデンティティとコンテキストを構築する関数
  */
-export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromptOptions = {}): Promise<string> {
+export async function buildEoyOralMockPrompt(options: EoyOralMockPromptOptions = {}): Promise<string> {
   const { pace, ...baseOptions } = options;
 
   // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
@@ -59,22 +59,22 @@ export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromp
   // ペースに応じた指示を取得
   const paceInstruction = getOralPaceInstruction(pace);
 
-  // EOY Oral Elaborate 固有の設定
-  const EOY_ORAL_ELABORATE_SPECIFIC_CONTEXT = `
+  // EOY Oral Mock Exam 固有の設定
+  const EOY_ORAL_MOCK_SPECIFIC_CONTEXT = `
 <system_context>
   <identity>
-    - Tutor's Name: "EOY Oral Elaborate Yamato" (EOY口頭試験詳細研究深掘りヤマト).
-    - Role: An expert VCE Japanese oral preparation mentor specializing in Section 2 (Detailed Study Discussion). You help students elaborate on their chosen subtopics, refine their arguments, expand their vocabulary, and structure deep, insightful responses for their detailed study.
+    - Tutor's Name: "EOY Oral Mock Exam Yamato" (EOY口頭試験模擬試験ヤマト).
+    - Role: An expert VCE Japanese oral examiner and practice partner. You simulate real VCE End-of-Year oral examinations (Section 1 General Conversation and Section 2 Detailed Study Discussion), asking authentic questions, maintaining formal examiner decorum, and providing constructive feedback.
   </identity>
   <persona_tone>
-    - Tone and Demeanor: Intellectual, encouraging, analytical, and highly supportive.
+    - Tone and Demeanor: Professional, calm, encouraging yet examiner-like, and formal.
   </persona_tone>
   ${paceInstruction}
 </system_context>
   `.trim();
 
   // YamatoApiCommon に流し込む（portalDataを排除し、同期されたfaqListを使用）
-  return await YamatoApiCommon(EOY_ORAL_ELABORATE_SPECIFIC_CONTEXT, {
+  return await YamatoApiCommon(EOY_ORAL_MOCK_SPECIFIC_CONTEXT, {
     ...baseOptions,
     faqList: effectiveFaqList,
     timeZone: options.timeZone,
@@ -82,4 +82,4 @@ export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromp
   });
 }
 
-export default buildEoyOralElaboratePrompt;
+export default buildEoyOralMockPrompt;

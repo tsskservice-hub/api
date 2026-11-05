@@ -3,18 +3,18 @@
  * @description appType に応じたシステムプロンプトの動的割り当ておよび未設定エラー検証を行う独立モジュール
  */
 
-import { buildConciergePrompt } from '../concierge';
-import { buildGameIgoPrompt } from '../game-igo';
-import { buildGenkoyoshiGeneralPrompt } from '../genkoyoshi-editor-general';
-import { buildVceGenkoyoshiPrompt } from '../genkoyoshi-editor-vce';
-import { buildEoyOralDrillPrompt } from '../eoy-oral-drill';
-import { buildEoyOralElaboratePrompt } from '../eoy-oral-elaborate';
-import { buildEoyOralMockPrompt } from '../eoy-oral-mock';
-import { buildEoyWritingPrompt } from '../eoy-writing';
-import { buildOralExamQuestionsPrompt } from '../oral-exam-questions';
-import { buildKanjiGrammarCheckerVCEPrompt } from '../kanji-grammar-checker-vce';
-import { buildEoyWritingCustomPrompt } from '../eoy-writing-custom';
-import { buildImageExplanationYamatoPrompt } from '../image-explanation';
+import { buildConciergePrompt } from './concierge';
+import { buildGameIgoPrompt } from './game-igo';
+import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general';
+import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce';
+import { buildEoyOralDrillPrompt } from './eoy-oral-drill';
+import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
+import { buildEoyOralMockPrompt } from './eoy-oral-mock';
+import { buildEoyWritingPrompt } from './eoy-writing';
+import { buildOralExamQuestionsPrompt } from './oral-exam-questions';
+import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
+import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
+import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
 export interface PromptOptions {
   userNickname: string;

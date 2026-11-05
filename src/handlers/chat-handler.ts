@@ -9,7 +9,7 @@ import { generateOpenAiTts } from '../services/tts-service';
 import { generateVisualAid } from '../services/imagen-service';
 import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
 import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
-import { getSyncedKnowledge } from '../api-sync-knowledge';
+import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 
 export async function handleChatOrTtsRequest(c: Context) {
   try {

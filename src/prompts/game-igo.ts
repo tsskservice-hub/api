@@ -2,8 +2,8 @@
  * @file game-igo.ts
  * @description 囲碁ヤマト専用プロンプト生成関数（YamatoApiCommon・portalData完全排除・同期ナレッジ対応版・指導碁AI対応）
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
 
 /**
  * 囲碁ヤマト固有のオプション定義（portalDataを排除）

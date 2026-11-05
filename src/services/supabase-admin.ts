@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { getRequiredCredits, FeatureKey } from "./credit-rules.js";
+import { getRequiredCredits, FeatureKey } from "../credit-rules.js";
 
 /**
  * サーバーサイド用 Supabase 管理者クライアントを初期化する関数

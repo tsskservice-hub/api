@@ -4,7 +4,7 @@
  */
 
 import { Context } from 'hono';
-import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from '../supabase-admin';
+import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from '../services/supabase-admin';
 import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } from '../credit-rules';
 
 export interface CreditCheckResult {

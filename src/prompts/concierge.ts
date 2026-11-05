@@ -3,8 +3,8 @@
  * @description Yamato Portal コンシェルジュヤマト（Supabase データ直接検証・フォールバック対応・クイズ対応版）
  * 💡 ハードコードされたデフォルトテキストを排除し、Supabase (syncedKnowledge) に保存されたデータのみを抽出してAIプロンプトへ組み込みます。
  */
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
-import { getSyncedKnowledge } from "./api-sync-knowledge";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
+import { getSyncedKnowledge } from "../services/api-sync-knowledge";
 
 /**
  * LPコンシェルジュ専用の振る舞いインストラクション

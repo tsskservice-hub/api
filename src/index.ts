@@ -6,7 +6,7 @@ import { Hono } from 'hono';
 import { handleSttRequest } from './services/stt-service';
 import { handleChatOrTtsRequest } from './handlers/chat-handler';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
-import { setSyncedKnowledge } from './api-sync-knowledge';
+import { setSyncedKnowledge } from './services/api-sync-knowledge';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;

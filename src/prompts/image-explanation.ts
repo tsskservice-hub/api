@@ -11,7 +11,7 @@
  * ==============================================================================
  */
 
-import { YamatoApiCommon, YamatoApiCommonOptions } from "./YamatoApiCommon";
+import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
 
 /**
  * 絵で説明ヤマト固有のオプション型定義
