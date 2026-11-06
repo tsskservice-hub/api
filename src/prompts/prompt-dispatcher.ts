@@ -16,6 +16,11 @@ import { buildKanjiGrammarCheckerVCEPrompt } from './kanji-grammar-checker-vce';
 import { buildEoyWritingCustomPrompt } from './eoy-writing-custom';
 import { buildImageExplanationYamatoPrompt } from './image-explanation';
 
+// 💡 Obento Deluxe Unit 4〜6 用プロンプトのインポート
+import { buildObentoU4YamatoPrompt } from './obento-u4';
+import { buildObentoU5YamatoPrompt } from './obento-u5';
+import { buildObentoU6YamatoPrompt } from './obento-u6';
+
 export interface PromptOptions {
   userNickname: string;
   faqList?: any[];
@@ -100,6 +105,19 @@ export async function dispatchSystemPrompt(
     case "image-explanation":
       systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
       break;
+    // 💡 Obento Deluxe Unit 4〜6 のルーティング追加
+    case "obento-u4":
+    case "obento-unit4":
+      systemInstructionText = await buildObentoU4YamatoPrompt(promptOptions);
+      break;
+    case "obento-u5":
+    case "obento-unit5":
+      systemInstructionText = await buildObentoU5YamatoPrompt(promptOptions);
+      break;
+    case "obento-u6":
+    case "obento-unit6":
+      systemInstructionText = await buildObentoU6YamatoPrompt(promptOptions);
+      break;
     default:
       if (bodySystemPrompt) {
         systemInstructionText = bodySystemPrompt;
@@ -122,3 +140,5 @@ export async function dispatchSystemPrompt(
     systemInstructionText,
   };
 }
+
+export default dispatchSystemPrompt;

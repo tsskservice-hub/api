@@ -11,16 +11,17 @@ import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API
 export interface OralExamQuestionsPromptOptions extends YamatoApiCommonOptions {
   timeZone?: string;
   cityName?: string;
+  env?: any; // 💡 envプロパティを追加
 }
 
 /**
  * 口頭試験問題ジェネレーター固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildOralExamQuestionsPrompt(options: OralExamQuestionsPromptOptions = {}): Promise<string> {
-  const { ...baseOptions } = options;
+  const { env, ...baseOptions } = options;
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
-  const syncedKnowledge = getSyncedKnowledge();
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得（awaitの追加とenvの渡し）
+  const syncedKnowledge = await getSyncedKnowledge(env);
   const effectiveFaqList = syncedKnowledge.faqList || [];
 
   // 口頭試験問題ジェネレーター固有の設定

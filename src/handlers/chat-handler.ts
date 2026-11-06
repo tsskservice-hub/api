@@ -83,7 +83,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 🔐 Google Access Token 取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 📜 システム指示プロンプトの構築
+    // 📜 システム指示プロンプトの構築（Obento U4〜U6などの appType に完全対応）
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
 
@@ -111,27 +111,27 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     const systemInstructionText = promptResult.systemInstructionText!;
 
-    // マルチモーダルパラメータの組み立て
+    // マルチモーダルパラメータの組み立て（MIMEタイプとBase64データのインデックス修正）
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
       for (const qImg of body.questionImagesBase64) {
         const qMatches = qImg.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
         if (qMatches && qMatches.length === 3) {
-          userParts.push({ inline_data: { mime_type: qMatches[8], data: qMatches[9] } });
+          userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
         }
       }
     } else if (body.questionImageBase64) {
       const qMatches = body.questionImageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (qMatches && qMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: qMatches[8], data: qMatches[9] } });
+        userParts.push({ inline_data: { mime_type: qMatches[1], data: qMatches[2] } });
       }
     }
 
     if (body.imageBase64) {
       const aMatches = body.imageBase64.match(/^data:(image\/[a-zA-Z+]+);base64,(.+)$/);
       if (aMatches && aMatches.length === 3) {
-        userParts.push({ inline_data: { mime_type: aMatches[8], data: aMatches[9] } });
+        userParts.push({ inline_data: { mime_type: aMatches[1], data: aMatches[2] } });
       }
     }
 
@@ -175,7 +175,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     const data = (await vertexRes.json()) as any;
     
     const aiReply =
-  data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+      data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
     
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
@@ -194,7 +194,7 @@ export async function handleChatOrTtsRequest(c: Context) {
         const base64Image = await generateVisualAid({
           promptText: promptToUse,
           projectId: projectId,
-          location: "global", // 💡 リージョンを "global" に指定
+          location: "global",
           serviceAccountKey: serviceAccountKey,
         });
         if (base64Image) {
@@ -220,3 +220,5 @@ export async function handleChatOrTtsRequest(c: Context) {
     );
   }
 }
+
+export default handleChatOrTtsRequest;
