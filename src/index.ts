@@ -1,12 +1,13 @@
 /**
  * @file src/index.ts
- * @description HonoベースのCloudflare Workers用メインAPIサーバー（完全モジュール分割・超軽量ルーティング版）
+ * @description HonoベースのCloudflare Workers用メインAPIサーバー（クレジット加算・クイズ報酬対応版）
  */
 import { Hono } from 'hono';
 import { handleSttRequest } from './services/stt-service';
 import { handleChatOrTtsRequest } from './handlers/chat-handler';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
+import { getSupabaseAdmin, addUserCredits } from './services/supabase-admin';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -69,6 +70,82 @@ app.post('/api/sync-knowledge', async (c) => {
   } catch (err: any) {
     console.error("❌ Failed to sync knowledge:", err?.message || String(err));
     return c.json({ success: false, error: err?.message || String(err) }, 500);
+  }
+});
+
+// 💡 クレジットチャージ（加算）用 API エンドポイント
+app.post('/api/credits/charge', async (c) => {
+  try {
+    const body = await c.req.json<{ userId: string; amount: number; description?: string }>();
+    const { userId, amount, description } = body;
+
+    if (!userId || typeof amount !== 'number') {
+      return c.json({ success: false, error: 'Invalid request: userId and amount are required.' }, 400);
+    }
+
+    const supabaseAdmin = getSupabaseAdmin(c.env);
+
+    const result = await addUserCredits(
+      supabaseAdmin,
+      userId,
+      amount,
+      description || "User purchased/charged credits"
+    );
+
+    if (!result.success) {
+      return c.json({ success: false, error: result.error || 'Failed to add credits.' }, 400);
+    }
+
+    return c.json({
+      success: true,
+      newBalance: result.newBalance,
+      message: `Successfully added ${amount} credits.`
+    });
+  } catch (err: any) {
+    console.error("❌ [API] /api/credits/charge エラー:", err?.message || String(err));
+    return c.json({ success: false, error: err?.message || 'Internal Server Error' }, 500);
+  }
+});
+
+// 💡 クイズ回答チェックと正解時のクレジット報酬付与エンドポイント（安全なサーバー側処理）
+app.post('/api/quiz/submit', async (c) => {
+  try {
+    const body = await c.req.json<{ userId: string; quizId?: string; isCorrect?: boolean }>();
+    const { userId, quizId, isCorrect } = body;
+
+    if (!userId) {
+      return c.json({ success: false, error: 'Invalid request: userId is required.' }, 400);
+    }
+
+    // 正解していない場合は報酬を付与しない
+    if (!isCorrect) {
+      return c.json({ success: true, correct: false, message: '不正解です。' });
+    }
+
+    const supabaseAdmin = getSupabaseAdmin(c.env);
+
+    // 正解したので 2 クレジットを安全に加算
+    const result = await addUserCredits(
+      supabaseAdmin,
+      userId,
+      2,
+      `Daily quiz reward for quizId: ${quizId || 'general'}`
+    );
+
+    if (!result.success) {
+      return c.json({ success: false, error: result.error || 'Failed to add reward credits.' }, 400);
+    }
+
+    return c.json({
+      success: true,
+      correct: true,
+      rewardCredits: 2,
+      newBalance: result.newBalance,
+      message: '正解です！2クレジットを獲得しました。'
+    });
+  } catch (err: any) {
+    console.error("❌ [API] /api/quiz/submit エラー:", err?.message || String(err));
+    return c.json({ success: false, error: err?.message || 'Internal Server Error' }, 500);
   }
 });
 
