@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/chat-handler.ts
- * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール
+ * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（動的オプション対応版）
  */
 
 import { Context } from 'hono';
@@ -52,8 +52,15 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     // 💬 2. 通常の AI チャット（Gemini / Vertex AI）処理
     const effectiveUserId = body.userId || "test-guest-user";
-    const userMessage = body.message;
+    let userMessage = body.message;
     const history = body.chatHistory || body.history || [];
+
+    // 💡 選択肢ボタンから値（"1" または "2"）が送られてきた場合のテキスト変換処理
+    if (userMessage === "1") {
+      userMessage = "I already know the Learning Intention and Success Criteria! Let's jump into vocabulary and practice!";
+    } else if (userMessage === "2") {
+      userMessage = "I want to check the Learning Intention and Success Criteria first!";
+    }
 
     const hasAnyQuestionImages =
       Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) ||
@@ -83,7 +90,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 🔐 Google Access Token 取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 📜 システム指示プロンプトの構築（Obento U4〜U6などの appType に完全対応）
+    // 📜 システム指示プロンプトの構築
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
 
@@ -111,7 +118,7 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     const systemInstructionText = promptResult.systemInstructionText!;
 
-    // マルチモーダルパラメータの組み立て（MIMEタイプとBase64データのインデックス修正）
+    // マルチモーダルパラメータの組み立て
     const userParts: any[] = [{ text: userMessage || "Please evaluate my answer against my question." }];
 
     if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
@@ -137,8 +144,7 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     const contents = [
       ...history.map((h: any) => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.content }],
+        role: h.role === 'assistant' ? 'model' : 'parts' in h ? h.parts : [{ text: h.content }],
       })),
       { role: 'user', parts: userParts },
     ];
@@ -188,7 +194,7 @@ export async function handleChatOrTtsRequest(c: Context) {
         ". Clean layout, high quality, professional illustration style.";
     }
 
-    // 🎨 画像生成AI処理 (imagen-service.ts を利用)
+    // 🎨 画像生成AI処理
     if (promptToUse) {
       try {
         const base64Image = await generateVisualAid({
@@ -208,7 +214,15 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
-    return c.json({ reply: aiReply, imageUrl: imageUrl });
+    // 💡 継続的なレッスン対話において、さらに選択肢を提示すべき場面で options を付与する拡張領域
+    // 例: 生徒が最初の選択肢を選んだあとの返答や、特定のステップでさらに次の分岐を提示する場合に利用可能
+    let responseOptions: Array<{ label: string; value: string }> | undefined = undefined;
+
+    return c.json({ 
+      reply: aiReply, 
+      imageUrl: imageUrl,
+      options: responseOptions 
+    });
   } catch (e: any) {
     console.error("❌ Unhandled exception in /chat or /api/test-tts:", e?.message || String(e));
     return c.json(
