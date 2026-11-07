@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/chat-handler.ts
- * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（動的オプション対応版）
+ * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（柔軟なメッセージ受取対応版）
  */
 
 import { Context } from 'hono';
@@ -55,10 +55,16 @@ export async function handleChatOrTtsRequest(c: Context) {
     let userMessage = body.message;
     const history = body.chatHistory || body.history || [];
 
-    // 💡 選択肢ボタンから値（"1" または "2"）が送られてきた場合のテキスト変換処理
-    if (userMessage === "1") {
+    // 💡 選択肢からの入力（短縮値または長文ラベルのどちらが来ても安全に正規化）
+    if (
+      userMessage === "1" ||
+      (typeof userMessage === "string" && (userMessage.includes("already know") || userMessage.includes("jump into vocabulary")))
+    ) {
       userMessage = "I already know the Learning Intention and Success Criteria! Let's jump into vocabulary and practice!";
-    } else if (userMessage === "2") {
+    } else if (
+      userMessage === "2" ||
+      (typeof userMessage === "string" && userMessage.includes("want to check"))
+    ) {
       userMessage = "I want to check the Learning Intention and Success Criteria first!";
     }
 
@@ -214,14 +220,10 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
-    // 💡 継続的なレッスン対話において、さらに選択肢を提示すべき場面で options を付与する拡張領域
-    // 例: 生徒が最初の選択肢を選んだあとの返答や、特定のステップでさらに次の分岐を提示する場合に利用可能
-    let responseOptions: Array<{ label: string; value: string }> | undefined = undefined;
-
     return c.json({ 
       reply: aiReply, 
       imageUrl: imageUrl,
-      options: responseOptions 
+      options: undefined 
     });
   } catch (e: any) {
     console.error("❌ Unhandled exception in /chat or /api/test-tts:", e?.message || String(e));
