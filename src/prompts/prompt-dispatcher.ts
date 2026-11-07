@@ -1,6 +1,6 @@
 /**
  * @file src/prompts/prompt-dispatcher.ts
- * @description appType に応じたシステムプロンプトの動的割り当ておよび未設定エラー検証を行う独立モジュール
+ * @description appType に応じたシステムプロンプトの動的割り当ておよび未設定エラー検証を行う独立モジュール（Obento全レッスン対応版）
  */
 
 import { buildConciergePrompt } from './concierge';
@@ -105,19 +105,34 @@ export async function dispatchSystemPrompt(
     case "image-explanation":
       systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
       break;
-    // 💡 Obento Deluxe Unit 4〜6 のルーティング追加
+
+    // 💡 Obento Deluxe Unit 4 (レッスン1〜3および共通表記) のルーティング登録
     case "obento-u4":
     case "obento-unit4":
+    case "obento-unit-4-lesson-1":
+    case "obento-unit-4-lesson-2":
+    case "obento-unit-4-lesson-3":
       systemInstructionText = await buildObentoU4YamatoPrompt(promptOptions);
       break;
+
+    // 💡 Obento Deluxe Unit 5 のルーティング登録
     case "obento-u5":
     case "obento-unit5":
+    case "obento-unit-5-lesson-1":
+    case "obento-unit-5-lesson-2":
+    case "obento-unit-5-lesson-3":
       systemInstructionText = await buildObentoU5YamatoPrompt(promptOptions);
       break;
+
+    // 💡 Obento Deluxe Unit 6 のルーティング登録
     case "obento-u6":
     case "obento-unit6":
+    case "obento-unit-6-lesson-1":
+    case "obento-unit-6-lesson-2":
+    case "obento-unit-6-lesson-3":
       systemInstructionText = await buildObentoU6YamatoPrompt(promptOptions);
       break;
+
     default:
       if (bodySystemPrompt) {
         systemInstructionText = bodySystemPrompt;
