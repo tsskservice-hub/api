@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/chat-handler.ts
- * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（柔軟なメッセージ受取対応版）
+ * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（安全性・デバッグ強化版）
  */
 
 import { Context } from 'hono';
@@ -148,9 +148,11 @@ export async function handleChatOrTtsRequest(c: Context) {
       }
     }
 
+    // 💡 履歴のロールとパーツ構造を厳密かつ安全にマッピング
     const contents = [
       ...history.map((h: any) => ({
-        role: h.role === 'assistant' ? 'model' : 'parts' in h ? h.parts : [{ text: h.content }],
+        role: h.role === 'assistant' ? 'model' : 'user',
+        parts: 'parts' in h && Array.isArray(h.parts) ? h.parts : [{ text: h.content || '' }],
       })),
       { role: 'user', parts: userParts },
     ];
@@ -226,11 +228,14 @@ export async function handleChatOrTtsRequest(c: Context) {
       options: undefined 
     });
   } catch (e: any) {
-    console.error("❌ Unhandled exception in /chat or /api/test-tts:", e?.message || String(e));
+    // 💡 詳細なエラー情報をコンソールとクライアントに返す
+    console.error("❌ [CHAT-HANDLER CRITICAL ERROR]:", e?.message || String(e));
+    console.error("❌ [ERROR STACK]:", e?.stack);
+    
     return c.json(
       {
         error: e?.message || 'Internal Server Error',
-        reply: 'Sorry, an error occurred while processing your request.',
+        reply: `⚠️ Server Error: ${e?.message || 'Unknown error occurred'}`,
       },
       500
     );
