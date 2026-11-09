@@ -97,7 +97,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
       }
     );
   } catch (err: any) {
-    console.error("❌ [REALTIME-HANDLER CRITICAL ERROR]:", err?.message || String(err));
+    console.error("❌ [REALTIME-HANDLER VERY CRITICAL ERROR]:", err?.message || String(err));
     return c.json({ error: err?.message || 'Internal Server Error' }, 500);
   }
 }
