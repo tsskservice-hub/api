@@ -1,10 +1,11 @@
 /**
  * @file src/index.ts
- * @description HonoベースのCloudflare Workers用メインAPIサーバー（クレジット加算・クイズ報酬対応版）
+ * @description HonoベースのCloudflare Workers用メインAPIサーバー（クレジット加算・クイズ報酬・リアルタイム音声対応版）
  */
 import { Hono } from 'hono';
 import { handleSttRequest } from './services/stt-service';
 import { handleChatOrTtsRequest } from './handlers/chat-handler';
+import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { getSupabaseAdmin, addUserCredits } from './services/supabase-admin';
@@ -183,6 +184,9 @@ app.post('/api/test-tts', handleChatOrTtsRequest);
 // 🎙️ 音声認識（STT）ルーティング (stt-service.ts へ委譲)
 app.post('/api/test-stt', handleSttRequest);
 app.post('/api/stt', handleSttRequest);
+
+// 🎙️ リアルタイム音声セッション（OpenAI Realtime API）発行用エンドポイント
+app.post('/api/realtime/session', handleRealtimeSessionRequest);
 
 // 404 ハンドラー
 app.notFound((c) => c.json({ error: 'Route Not Found' }, 404));

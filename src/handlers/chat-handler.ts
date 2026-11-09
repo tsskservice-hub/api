@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/chat-handler.ts
- * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（動的オプション自動付与・デバッグ強化版）
+ * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（常設チューター特化・クリーン版）
  */
 
 import { Context } from 'hono';
@@ -52,21 +52,8 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     // 💬 2. 通常の AI チャット（Gemini / Vertex AI）処理
     const effectiveUserId = body.userId || "test-guest-user";
-    let userMessage = body.message;
+    const userMessage = body.message;
     const history = body.chatHistory || body.history || [];
-
-    // 💡 選択肢からの入力（短縮値または長文ラベルのどちらが来ても安全に正規化）
-    if (
-      userMessage === "1" ||
-      (typeof userMessage === "string" && (userMessage.includes("already know") || userMessage.includes("jump into vocabulary") || userMessage.includes("ページにある語彙リスト")))
-    ) {
-      userMessage = "I already know the Learning Intention and Success Criteria! Let's jump into vocabulary and practice!";
-    } else if (
-      userMessage === "2" ||
-      (typeof userMessage === "string" && (userMessage.includes("want to check") || userMessage.includes("やまとと一緒に")))
-    ) {
-      userMessage = "I want to check the Learning Intention and Success Criteria first!";
-    }
 
     const hasAnyQuestionImages =
       Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) ||
@@ -222,24 +209,10 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
-    // 💡 AIの返答に二択の要素が含まれている場合、フロントエンド用の options 配列を自動付与
-    let responseOptions: Array<{ label: string; value: string }> | undefined = undefined;
-
-    if (
-      (aiReply.includes("1.") && aiReply.includes("2.")) ||
-      aiReply.includes("語彙リスト") ||
-      aiReply.includes("やまとと一緒に")
-    ) {
-      responseOptions = [
-        { label: "ページにある語彙リストで意味と発音を自分で確認する", value: "1" },
-        { label: "やまとと一緒に一つ一つ語彙を確認する", value: "2" }
-      ];
-    }
-
     return c.json({ 
       reply: aiReply, 
       imageUrl: imageUrl,
-      options: responseOptions 
+      options: undefined 
     });
   } catch (e: any) {
     // 💡 詳細なエラー情報をコンソールとクライアントに返す
