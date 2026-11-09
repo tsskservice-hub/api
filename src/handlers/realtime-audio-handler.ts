@@ -38,18 +38,24 @@ export async function handleRealtimeSessionRequest(c: Context) {
       dynamicSystemPrompt = `You are a helpful Japanese language conversation partner.`;
     }
 
+    // 🐢 【最重要】話すスピードとテンポに関する超・厳格な指示
+    const speedRules = `
+=== SPEECH PACE & PACING RULES (CRITICAL) ===
+- YOU MUST SPEAK EXTREMELY SLOWLY. Imagine you are talking to a 7-year-old child or a complete beginner who struggles to catch words.
+- Pause significantly between words and sentences. Do not rush.
+- Articulate every single syllable clearly and distinctly.
+`;
+
     const taskRules = `
 === SPEAKING TASK RULES (Strictly Follow) ===
 1. Task Topic / Focus: ${customTopic}
 2. Turn-Taking & Flow:
-   - Engage in a controlled conversation. Guide the student through the conversation naturally.
-   - Use simple, clear Japanese appropriate for beginner learners.
-   - Check if they use correct counters (e.g., ひとり, ふたり) or particles.
+   - Guide the student through the conversation naturally using ONLY the allowed vocabulary for this lesson.
 3. Completion:
    - When the conversation reaches its goal or 5 turns, include a polite closing statement: "お疲れ様でした！これで今回のスピーキング課題は終了です。"
 `;
 
-    const finalInstructions = `${dynamicSystemPrompt}\n\n${taskRules}`;
+    const finalInstructions = `${dynamicSystemPrompt}\n\n${speedRules}\n\n${taskRules}`;
 
     // 🎙️ OpenAI Realtime API (GA仕様: client_secrets) へ一時トークンを要求
     const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
@@ -65,7 +71,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
           instructions: finalInstructions,
           audio: {
             output: {
-              voice: "shimmer", // AIヤマトの音声プロファイル（お好みで変更可能）
+              voice: "shimmer", // または "alloy" や "verse" など、ゆっくり聞こえやすい声
             },
           },
         },
