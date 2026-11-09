@@ -1,12 +1,11 @@
 /**
  * @file src/handlers/realtime-audio-handler.ts
- * @description Google Cloud Vertex AI (Gemini 2.5 Flash) を用いた日本語スピーキング課題の対話処理ハンドラー（Vertex AI移行版）
+ * @description OpenAI Realtime API (GA仕様 / client_secrets) を用いた日本語スピーキング課題のセッション発行ハンドラー
  */
 
 import { Context } from 'hono';
 import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
 import { buildObentoU4YamatoPrompt } from '../prompts/obento-u4';
-import { getGoogleAccessToken } from '../services/google-auth';
 
 export async function handleRealtimeSessionRequest(c: Context) {
   try {
@@ -15,15 +14,10 @@ export async function handleRealtimeSessionRequest(c: Context) {
     const appType = body.appType || "";
     const lessonSlug = body.lessonSlug || "obento-unit-4-lesson-1";
     const customTopic = body.topic || "家族の人数や構成、ペットについての質問と答え方の練習";
-    const history = body.chatHistory || body.history || [];
-    const userMessage = body.message || "こんにちは、家族の人数や構成についてのスピーキング課題を始めます。";
 
-    const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
-    const projectId = c.env.VERTEX_AI_PROJECT_ID;
-    const region = c.env.VERTEX_AI_REGION || "us-central1";
-
-    if (!serviceAccountKey || !projectId) {
-      return c.json({ error: "VERTEX_AI_KEY or VERTEX_AI_PROJECT_ID is not configured on server environment variables." }, 500);
+    const openaiApiKey = c.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+      return c.json({ error: "OPENAI_API_KEY is not configured on server environment variables." }, 500);
     }
 
     // 💳 クレジットの事前チェック
@@ -52,55 +46,56 @@ export async function handleRealtimeSessionRequest(c: Context) {
    - Use simple, clear Japanese appropriate for beginner learners.
    - Check if they use correct counters (e.g., ひとり, ふたり) or particles.
 3. Completion:
-   - When the conversation reaches its goal or 5 turns, include a polite closing statement.
+   - When the conversation reaches its goal or 5 turns, include a polite closing statement: "お疲れ様でした！これで今回のスピーキング課題は終了です。"
 `;
 
-    const systemInstructionText = `${dynamicSystemPrompt}\n\n${taskRules}`;
+    const finalInstructions = `${dynamicSystemPrompt}\n\n${taskRules}`;
 
-    // 🔐 Google Access Token 取得
-    const accessToken = await getGoogleAccessToken(serviceAccountKey);
-
-    // 💬 履歴とユーザーメッセージの組み立て
-    const contents = [
-      ...history.map((h: any) => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: 'parts' in h && Array.isArray(h.parts) ? h.parts : [{ text: h.content || '' }],
-      })),
-      { role: 'user', parts: [{ text: userMessage }] },
-    ];
-
-    const gDomain = ["google", "apis"].join("");
-    const vertexHost = region + "-aiplatform." + gDomain + ".com";
-    const vertexUrl = `https://${vertexHost}/v1/projects/${projectId}/locations/${region}/publishers/google/models/gemini-2.5-flash:generateContent`;
-
-    const vertexRes = await fetch(vertexUrl, {
-      method: 'POST',
+    // 🎙️ OpenAI Realtime API (GA仕様: client_secrets) へ一時トークンを要求
+    const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + accessToken,
+        "Authorization": `Bearer ${openaiApiKey.trim()}`,
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstructionText }] },
-        contents,
+        session: {
+          type: "realtime",
+          model: "gpt-realtime",
+          instructions: finalInstructions,
+          audio: {
+            output: {
+              voice: "shimmer", // AIヤマトの音声プロファイル（お好みで変更可能）
+            },
+          },
+        },
       }),
     });
 
-    if (!vertexRes.ok) {
-      const errText = await vertexRes.text();
-      console.error("❌ Vertex AI API Error:", errText);
-      return c.json({ error: "Vertex AI API Error: " + errText }, 500);
+    if (!response.ok) {
+      const errText = await response.text();
+      console.error("❌ OpenAI Realtime Error Status:", response.status);
+      console.error("❌ OpenAI Realtime Error Body:", errText);
+      return c.json({ error: `Realtime connection initialization failed (${response.status})` }, 502);
     }
 
-    const data = (await vertexRes.json()) as any;
-    const aiReply = data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+    const data = (await response.json()) as any;
 
     // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
-    return c.json({
-      success: true,
-      reply: aiReply,
-    });
+    return c.json(
+      {
+        success: true,
+        value: data.value,
+        expires_at: data.expires_at,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      }
+    );
   } catch (err: any) {
     console.error("❌ [REALTIME-HANDLER CRITICAL ERROR]:", err?.message || String(err));
     return c.json({ error: err?.message || 'Internal Server Error' }, 500);
