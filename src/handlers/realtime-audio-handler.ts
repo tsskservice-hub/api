@@ -6,6 +6,7 @@
 import { Context } from 'hono';
 import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
 import { buildObentoU4YamatoPrompt } from '../prompts/obento-u4';
+import { buildEoyOralAcceleratedPrompt } from '../prompts/eoy-oral-accelerated'; // 💡 Accelerated用プロンプト生成関数をインポート
 
 export async function handleRealtimeSessionRequest(c: Context) {
   try {
@@ -26,9 +27,17 @@ export async function handleRealtimeSessionRequest(c: Context) {
       return creditCheck.errorResponse!;
     }
 
-    // 📜 ユニットごとの専門プロンプト（obento-u4.ts）を動的に生成
+    // 📜 アプリタイプやレッスンに応じた専門プロンプトを動的に生成
     let dynamicSystemPrompt = "";
-    if (appType.includes("obento-unit-4") || lessonSlug.includes("obento-unit-4")) {
+    
+    if (appType.includes("accelerated") || lessonSlug.includes("accelerated")) {
+      // ⚡ Accelerated トラック用の高度なプロンプトを構築
+      dynamicSystemPrompt = await buildEoyOralAcceleratedPrompt({
+        userNickname: body.userNickname || "VCE Accelerated Student",
+        env: c.env,
+      });
+    } else if (appType.includes("obento-unit-4") || lessonSlug.includes("obento-unit-4")) {
+      // 📘 Obento Unit 4 初級・定着用の厳格プロンプトを構築
       dynamicSystemPrompt = await buildObentoU4YamatoPrompt({
         lessonSlug,
         userNickname: body.userNickname || "Student",
@@ -38,21 +47,29 @@ export async function handleRealtimeSessionRequest(c: Context) {
       dynamicSystemPrompt = `You are a helpful Japanese language conversation partner.`;
     }
 
-    // 🐢 【最重要】話すスピードとテンポに関する超・厳格な指示
-    const speedRules = `
+    // 🐢 初心者向け（Obento等）の場合はスロースピードを適用。Acceleratedの場合は自然な会話スピードを維持。
+    let speedRules = "";
+    if (!appType.includes("accelerated") && !lessonSlug.includes("accelerated")) {
+      speedRules = `
 === SPEECH PACE & PACING RULES (CRITICAL) ===
-- YOU MUST SPEAK EXTREMELY SLOWLY. Imagine you are talking to a 7-year-old child or a complete beginner who struggles to catch words.
+- YOU MUST SPEAK EXTREMELY SLOWLY. Imagine you are talking to a complete beginner who struggles to catch words.
 - Pause significantly between words and sentences. Do not rush.
 - Articulate every single syllable clearly and distinctly.
 `;
+    } else {
+      speedRules = `
+=== SPEECH PACE & PACING RULES ===
+- Speak at a natural, standard native conversational speed suitable for high-achieving VCE students.
+`;
+    }
 
     const taskRules = `
 === SPEAKING TASK RULES (Strictly Follow) ===
 1. Task Topic / Focus: ${customTopic}
 2. Turn-Taking & Flow:
-   - Guide the student through the conversation naturally using ONLY the allowed vocabulary for this lesson.
+   - Guide the student through the conversation naturally.
 3. Completion:
-   - When the conversation reaches its goal or 5 turns, include a polite closing statement: "お疲れ様でした！これで今回のスピーキング課題は終了です。"
+   - When the conversation reaches its goal or finishes, include an appropriate polite closing statement.
 `;
 
     const finalInstructions = `${dynamicSystemPrompt}\n\n${speedRules}\n\n${taskRules}`;
@@ -71,7 +88,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
           instructions: finalInstructions,
           audio: {
             output: {
-              voice: "shimmer", // または "alloy" や "verse" など、ゆっくり聞こえやすい声
+              voice: appType.includes("accelerated") ? "alloy" : "shimmer", // Acceleratedは自然なalloy、初級は聞き取りやすいshimmer
             },
           },
         },

@@ -44,17 +44,19 @@ export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
   pace?: string;
   timeZone?: string;
   cityName?: string;
+  /** 必要に応じて getSyncedKnowledge に渡す環境変数など */
+  env?: any;
 }
 
 /**
  * EOY Oral Elaborate 固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromptOptions = {}): Promise<string> {
-  const { pace, ...baseOptions } = options;
+  const { pace, env, ...baseOptions } = options;
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
-  const syncedKnowledge = getSyncedKnowledge();
-  const effectiveFaqList = syncedKnowledge.faqList || [];
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）を非同期で取得
+  const syncedKnowledge = await getSyncedKnowledge(env);
+  const effectiveFaqList = syncedKnowledge?.faqList || [];
 
   // ペースに応じた指示を取得
   const paceInstruction = getOralPaceInstruction(pace);

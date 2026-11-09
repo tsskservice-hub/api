@@ -11,17 +11,19 @@ import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API
 export interface GenkoyoshiGeneralPromptOptions extends YamatoApiCommonOptions {
   timeZone?: string;
   cityName?: string;
+  /** 必要に応じて getSyncedKnowledge に渡す環境変数など */
+  env?: any;
 }
 
 /**
  * 一般向け原稿用紙エディター固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildGenkoyoshiGeneralPrompt(options: GenkoyoshiGeneralPromptOptions = {}): Promise<string> {
-  const { ...baseOptions } = options;
+  const { env, ...baseOptions } = options;
 
-  // 💡 API側の同期済みナレッジ（syncedKnowledge）からFAQを取得
-  const syncedKnowledge = getSyncedKnowledge();
-  const effectiveFaqList = syncedKnowledge.faqList || [];
+  // 💡 API側の同期済みナレッジ（syncedKnowledge）を非同期で取得
+  const syncedKnowledge = await getSyncedKnowledge(env);
+  const effectiveFaqList = syncedKnowledge?.faqList || [];
 
   // 一般向け原稿用紙エディター固有の設定
   const GENERAL_GENKOYOSHI_SPECIFIC_CONTEXT = `
