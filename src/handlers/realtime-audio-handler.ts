@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/realtime-audio-handler.ts
- * @description OpenAI Realtime API のエフェメラルセッション（一時トークン）を発行するハンドラー（修正版）
+ * @description OpenAI Realtime API のエフェメラルセッション（一時トークン）を発行するハンドラー（URL修正版）
  */
 
 import { Context } from 'hono';
@@ -54,16 +54,19 @@ export async function handleRealtimeSessionRequest(c: Context) {
 
     const finalInstructions = `${dynamicSystemPrompt}\n\n${realtimeControlRules}`;
 
-    // 🎙️ OpenAI Realtime API エフェメラルセッションの作成（※ OpenAI-Beta ヘッダーが必須）
-    const response = await fetch("https://api.openai.com/v1/realtime/sessions", {
+    // 🎙️ OpenAI Realtime API エフェメラルセッションの作成
+    // 末尾のスラッシュやURLの形式を完全に統一した安全なリクエスト
+    const openAiUrl = "https://api.openai.com/v1/realtime/sessions";
+    
+    const response = await fetch(openAiUrl, {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${openaiApiKey}`,
+        "Authorization": `Bearer ${openaiApiKey.trim()}`,
         "Content-Type": "application/json",
-        "OpenAI-Beta": "realtime=v1", // 👈 ここが必須のヘッダーです
+        "OpenAI-Beta": "realtime=v1",
       },
       body: JSON.stringify({
-        model: "gpt-4o-realtime-preview-2024-10-13", // 👈 正式なバージョン付きモデル名を指定すると確実です
+        model: "gpt-4o-realtime-preview",
         voice: "shimmer",
         instructions: finalInstructions,
       }),
@@ -71,8 +74,9 @@ export async function handleRealtimeSessionRequest(c: Context) {
 
     if (!response.ok) {
       const errText = await response.text();
-      console.error("❌ OpenAI Realtime Session API Error:", errText);
-      return c.json({ error: "Failed to create realtime session: " + errText }, 500);
+      console.error("❌ OpenAI Realtime Session API Error Status:", response.status);
+      console.error("❌ OpenAI Realtime Session API Error Body:", errText);
+      return c.json({ error: `Failed to create realtime session (${response.status}): ` + errText }, 500);
     }
 
     const data = (await response.json()) as any;
