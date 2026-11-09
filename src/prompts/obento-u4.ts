@@ -95,7 +95,7 @@ export async function buildObentoU4YamatoPrompt(options: ObentoU4YamatoOptions =
 </system_context>
   `.trim();
 
-  // YamatoApiCommon に流し込んで共通レイアウトと結合する
+  // YamatoApiCommon に流し込んで共通レイアウトと結合とする
   return await YamatoApiCommon(OBENTO_U4_SPECIFIC_CONTEXT, { ...baseOptions });
 }
 
