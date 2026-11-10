@@ -12,12 +12,17 @@ import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 
 /**
- * 🎙️ OpenAI Whisper API (STT) を用いて音声を日本語テキストに文字起こしする関数
+ * 🎙️ OpenAI Whisper API (STT) を用いて音声を日本語テキストに文字起こしする関数（堅牢版）
  */
 async function transcribeAudioToText(audioBase64: string, openaiApiKey: string): Promise<string> {
-  // data:audio/...;base64, のプレフィックスがあれば除去
-  const base64Data = audioBase64.replace(/^data:audio\/[a-zA-Z0-9+\.-]+;base64,/, '');
-  
+  // 💡 どんな形式の Data URL プレフィックス（data:audio/...;base64,）でも確実に除去する
+  let base64Data = audioBase64;
+  if (base64Data.includes(',')) {
+    base64Data = base64Data.split(',')[1];
+  }
+  // 空白や改行文字を除去してクリーンアップ
+  base64Data = base64Data.replace(/[\r\n\s]/g, '');
+
   // Base64 からバイナリ（Uint8Array）に変換
   const binaryString = atob(base64Data);
   const len = binaryString.length;
