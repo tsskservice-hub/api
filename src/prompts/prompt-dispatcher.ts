@@ -79,6 +79,7 @@ export async function dispatchSystemPrompt(
       break;
     case "eoy-oral-drill":
     case "eoy-oral-drill-chat":
+    case "eoy-oral-accelerated": // 💡 フロント側で使用している 'eoy-oral-accelerated' をドリル用プロンプトに紐づけ
       systemInstructionText = await buildEoyOralDrillPrompt(promptOptions);
       break;
     case "eoy-oral-elaborate":

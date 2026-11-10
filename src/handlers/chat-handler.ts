@@ -1,6 +1,6 @@
 /**
  * @file src/handlers/chat-handler.ts
- * @description /chat および /api/chat のメイン対話処理を担当する独立ハンドラーモジュール（常設チューター特化・クリーン版）
+ * @description カスケード型（Whisper STT ＋ Vertex AI Text LLM ＋ OpenAI TTS）の完全統合対話ハンドラー
  */
 
 import { Context } from 'hono';
@@ -11,9 +11,48 @@ import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
 import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 
+/**
+ * 🎙️ OpenAI Whisper API (STT) を用いて音声を日本語テキストに文字起こしする関数
+ */
+async function transcribeAudioToText(audioBase64: string, openaiApiKey: string): Promise<string> {
+  // data:audio/...;base64, のプレフィックスがあれば除去
+  const base64Data = audioBase64.replace(/^data:audio\/[a-zA-Z0-9+\.-]+;base64,/, '');
+  
+  // Base64 からバイナリ（Uint8Array）に変換
+  const binaryString = atob(base64Data);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  const blob = new Blob([bytes], { type: 'audio/webm' });
+
+  // FormData の構築
+  const formData = new FormData();
+  formData.append('file', blob, 'user-recording.webm');
+  formData.append('model', 'whisper-1');
+  formData.append('language', 'ja'); // 💡 日本語に強制固定し、英語や外国語の混入を防止
+
+  const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey.trim()}`,
+    },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Whisper STT API Error (${res.status}): ${errText}`);
+  }
+
+  const data = (await res.json()) as any;
+  return data.text || '';
+}
+
 export async function handleChatOrTtsRequest(c: Context) {
   try {
-    const body = (await c.req.json()) as any;
+    const body = (await c.req.json().catch(() => ({}))) as any;
     const isTtsEndpoint = c.req.path.includes("test-tts");
 
     const rawTtsText =
@@ -34,7 +73,7 @@ export async function handleChatOrTtsRequest(c: Context) {
         .trim();
     }
 
-    // 🔊 1. TTS リクエストの場合
+    // 🔊 1. 単体 TTS リクエストの場合
     if (cleanedTtsText || isTtsEndpoint) {
       const textToSpeak = cleanedTtsText || body.message || "こんにちは";
       const openaiApiKey = c.env.OPENAI_API_KEY;
@@ -50,9 +89,26 @@ export async function handleChatOrTtsRequest(c: Context) {
       return await generateOpenAiTts(textToSpeak, openaiApiKey, voiceToUse, speedToUse, origin);
     }
 
-    // 💬 2. 通常の AI チャット（Gemini / Vertex AI）処理
+    // 💬 2. フルカスケード型 AI チャット（音声入力 or テキスト入力 → STT → Vertex AI）処理
     const effectiveUserId = body.userId || "test-guest-user";
-    const userMessage = body.message;
+    const openaiApiKey = c.env.OPENAI_API_KEY;
+
+    let userMessage = body.message;
+    const audioBase64 = body.audioBase64 || body.audio; // フロントエンドから送られる音声データ
+
+    // 🎙️ 音声データが送信されてきた場合、まずは Whisper STT で日本語テキスト化する
+    if (!userMessage && audioBase64) {
+      if (!openaiApiKey) {
+        return c.json({ error: 'OPENAI_API_KEY is required for audio transcription (STT).' }, 500);
+      }
+      try {
+        userMessage = await transcribeAudioToText(audioBase64, openaiApiKey);
+      } catch (sttErr: any) {
+        console.error("❌ Whisper STT Error:", sttErr?.message || String(sttErr));
+        return c.json({ error: `Audio transcription failed: ${sttErr?.message || 'Unknown error'}` }, 500);
+      }
+    }
+
     const history = body.chatHistory || body.history || [];
 
     const hasAnyQuestionImages =
@@ -60,7 +116,7 @@ export async function handleChatOrTtsRequest(c: Context) {
       Boolean(body.questionImageBase64);
 
     if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
-      return c.json({ error: 'Message or image is required' }, 400);
+      return c.json({ error: 'Message, audio, or image is required' }, 400);
     }
 
     const serviceAccountKey = c.env.VERTEX_AI_KEY || c.env.GOOGLE_SERVICE_ACCOUNT_JSON;
@@ -83,7 +139,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 🔐 Google Access Token 取得
     const accessToken = await getGoogleAccessToken(serviceAccountKey);
 
-    // 📜 システム指示プロンプトの構築
+    // 📜 システム指示プロンプトの構築（日本語厳守・JLPT統御プロンプトがここにディスパッチされます）
     const appType = body.appType || "general";
     const syncedKnowledge = await getSyncedKnowledge(c.env);
 
@@ -209,13 +265,14 @@ export async function handleChatOrTtsRequest(c: Context) {
     // 💳 クレジット引き落としの実行
     await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
+    // 📤 レスポンス返却（文字起こし結果 transcript も含めることでフロント側で確認可能）
     return c.json({ 
       reply: aiReply, 
+      transcript: userMessage, // 💡 ユーザーの発話がどう文字起こしされたかを返す
       imageUrl: imageUrl,
       options: undefined 
     });
   } catch (e: any) {
-    // 💡 詳細なエラー情報をコンソールとクライアントに返す
     console.error("❌ [CHAT-HANDLER CRITICAL ERROR]:", e?.message || String(e));
     console.error("❌ [ERROR STACK]:", e?.stack);
     
