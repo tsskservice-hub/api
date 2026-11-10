@@ -96,6 +96,11 @@ export async function handleChatOrTtsRequest(c: Context) {
     let userMessage = body.message;
     const audioBase64 = body.audioBase64 || body.audio; // フロントエンドから送られる音声データ
 
+    // 💡 ダミーのプレースホルダーや空文字の場合は無効とし、音声データがある場合は Whisper STT を最優先で実行する
+    if (userMessage === "(voice-audio-input)") {
+      userMessage = undefined;
+    }
+
     // 🎙️ 音声データが送信されてきた場合、まずは Whisper STT で日本語テキスト化する
     if (!userMessage && audioBase64) {
       if (!openaiApiKey) {
@@ -115,7 +120,7 @@ export async function handleChatOrTtsRequest(c: Context) {
       Boolean(body.questionImagesBase64 && body.questionImagesBase64.length > 0) ||
       Boolean(body.questionImageBase64);
 
-    if (!userMessage && !body.imageBase64 && !hasAnyQuestionImages) {
+    if (!userMessage && !audioBase64 && !body.imageBase64 && !hasAnyQuestionImages) {
       return c.json({ error: 'Message, audio, or image is required' }, 400);
     }
 
