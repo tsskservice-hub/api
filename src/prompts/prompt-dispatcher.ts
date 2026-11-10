@@ -8,6 +8,7 @@ import { buildGameIgoPrompt } from './game-igo';
 import { buildGenkoyoshiGeneralPrompt } from './genkoyoshi-editor-general';
 import { buildVceGenkoyoshiPrompt } from './genkoyoshi-editor-vce';
 import { buildEoyOralDrillPrompt } from './eoy-oral-drill';
+import { buildEoyOralAcceleratedPrompt } from './eoy-oral-accelerated'; // 💡 新規：Accelerated用プロンプトのインポート
 import { buildEoyOralElaboratePrompt } from './eoy-oral-elaborate';
 import { buildEoyOralMockPrompt } from './eoy-oral-mock';
 import { buildEoyWritingPrompt } from './eoy-writing';
@@ -79,8 +80,10 @@ export async function dispatchSystemPrompt(
       break;
     case "eoy-oral-drill":
     case "eoy-oral-drill-chat":
-    case "eoy-oral-accelerated": // 💡 フロント側で使用している 'eoy-oral-accelerated' をドリル用プロンプトに紐づけ
       systemInstructionText = await buildEoyOralDrillPrompt(promptOptions);
+      break;
+    case "eoy-oral-accelerated": // 💡 専用の accelerated プロンプトビルダーに紐づけ
+      systemInstructionText = await buildEoyOralAcceleratedPrompt(promptOptions);
       break;
     case "eoy-oral-elaborate":
     case "eoy-oral-elaborate-chat":
