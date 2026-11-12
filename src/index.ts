@@ -9,6 +9,7 @@ import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler'
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
+import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -50,7 +51,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing']) {
   app.use(path, requireAuth);
 }
 
@@ -121,6 +122,11 @@ app.post('/api/stt', handleSttRequest);
 
 // 🎙️ リアルタイム音声セッション（OpenAI Realtime API）発行用エンドポイント
 app.post('/api/realtime/session', handleRealtimeSessionRequest);
+
+// ✍️ 教科書準拠レッスンのライティング課題（textbook-lesson-writing-handler.ts へ委譲）
+// GET: 課題と提出状況 / POST: 画像の読み取り（intent: "read"）・フィードバック（intent: "feedback"）
+app.get('/api/textbook-lesson-writing', handleWritingStatusRequest);
+app.post('/api/textbook-lesson-writing', handleWritingPostRequest);
 
 // 404 ハンドラー
 app.notFound((c) => c.json({ error: 'Route Not Found' }, 404));
