@@ -4,11 +4,13 @@
  */
 
 import { Context } from 'hono';
-import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
+import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { buildObentoU4YamatoPrompt } from '../prompts/obento-u4';
 import { buildEoyOralAcceleratedPrompt } from '../prompts/eoy-oral-accelerated'; // 💡 Accelerated用プロンプト生成関数をインポート
 
 export async function handleRealtimeSessionRequest(c: Context) {
+  // 💳 先払いしたクレジット（失敗時に返すために try の外で持つ）
+  let reservation: CreditReservation | null = null;
   try {
     const body = (await c.req.json().catch(() => ({}))) as any;
     // 🔐 ユーザーIDはログイン確認（requireAuth）で特定したものだけを使う
@@ -22,10 +24,10 @@ export async function handleRealtimeSessionRequest(c: Context) {
       return c.json({ error: "OPENAI_API_KEY is not configured on server environment variables." }, 500);
     }
 
-    // 💳 クレジットの事前チェック
-    const creditCheck = await checkCreditBalance(c, body, effectiveUserId);
-    if (!creditCheck.hasPermission) {
-      return creditCheck.errorResponse!;
+    // 💳 セッションを作る前にクレジットを引く（残高が足りるときだけ・同時リクエストでも二重使用できない）
+    reservation = await reserveCredits(c, body, effectiveUserId);
+    if (!reservation.ok) {
+      return reservation.errorResponse!;
     }
 
     // 📜 アプリタイプやレッスンに応じた専門プロンプトを動的に生成
@@ -100,13 +102,11 @@ export async function handleRealtimeSessionRequest(c: Context) {
       const errText = await response.text();
       console.error("❌ OpenAI Realtime Error Status:", response.status);
       console.error("❌ OpenAI Realtime Error Body:", errText);
+      await refundCredits(c.env, reservation);
       return c.json({ error: `Realtime connection initialization failed (${response.status})` }, 502);
     }
 
     const data = (await response.json()) as any;
-
-    // 💳 クレジット引き落としの実行
-    await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
 
     return c.json(
       {
@@ -122,6 +122,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
     );
   } catch (err: any) {
     console.error("❌ [REALTIME-HANDLER VERY CRITICAL ERROR]:", err?.message || String(err));
+    await refundCredits(c.env, reservation);
     return c.json({ error: err?.message || 'Internal Server Error' }, 500);
   }
 }

@@ -1,101 +1,110 @@
 /**
  * @file src/handlers/credit-handler.ts
- * @description Supabase DB と連携したユーザークレジット残高の検証および引き落とし処理を行う独立モジュール
+ * @description Supabase DB と連携したユーザークレジットの消費（先払い）と返却を行う独立モジュール
+ *
+ * 流れ:
+ *   1. reserveCredits()  … AI を呼ぶ「前」に、残高が足りるときだけクレジットを引く（DB 関数で1回で行う）
+ *   2. AI の処理
+ *   3. 失敗したら refundCredits() で返す
+ * 同時にリクエストが来ても、残高を超えて使うことはできない。
  */
 
 import { Context } from 'hono';
-import { getSupabaseAdmin, validateUserCredits, deductUserCredits } from '../services/supabase-admin';
-import { determineRequiredCreditsFromPayload, FeatureKey, SERVER_CREDIT_COSTS } from '../credit-rules';
+import { getSupabaseAdmin, consumeUserCredits, refundUserCredits } from '../services/supabase-admin';
+import { determineRequiredCreditsFromPayload, getRequiredCredits, FeatureKey, SERVER_CREDIT_COSTS } from '../credit-rules';
 
-export interface CreditCheckResult {
-  hasPermission: boolean;
-  requiredCredits: number;
+export interface CreditReservation {
+  ok: boolean;
+  userId: string;
   featureKey: FeatureKey;
+  amount: number;
+  /** 返却済みかどうか（二重に返さないため） */
+  refunded?: boolean;
   errorResponse?: Response;
 }
 
 /**
- * 💡 ユーザーのクレジット残高を事前検証する
- * @param c Hono Context
- * @param body リクエストボディ
- * @param effectiveUserId ユーザーID
+ * リクエスト内容から、どの機能（FeatureKey）かを判定する
  */
-export async function checkCreditBalance(
+function determineFeatureKey(body: any): FeatureKey {
+  const requiredCredits = determineRequiredCreditsFromPayload(body);
+
+  if (body.featureKey && body.featureKey in SERVER_CREDIT_COSTS) {
+    return body.featureKey;
+  }
+  if (requiredCredits >= 10) return 'mockFull';
+  if (requiredCredits === 6) {
+    if (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") return 'mockSection2';
+    if (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") return 'mockSection1';
+    return 'multiImageAi';
+  }
+  if (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate')) return 'voiceElaborate';
+  if (requiredCredits === 4) return 'imageAi';
+  if (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill')) return 'voiceDrill';
+  return 'textAi';
+}
+
+/**
+ * 💳 AI を呼ぶ前にクレジットを引く（先払い）
+ * 残高が足りなければ 402、確認できなければ 503 を errorResponse に入れて返す。
+ */
+export async function reserveCredits(
   c: Context,
   body: any,
   effectiveUserId: string
-): Promise<CreditCheckResult> {
-  // 必要クレジット数の判定 (credit-rules.ts を使用)
-  const requiredCredits = determineRequiredCreditsFromPayload(body);
-
-  const featureKey: FeatureKey = (body.featureKey && (body.featureKey in SERVER_CREDIT_COSTS))
-    ? body.featureKey
-    : requiredCredits >= 10
-    ? 'mockFull'
-    : requiredCredits === 6
-    ? ( (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") ? 'mockSection2' : (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") ? 'mockSection1' : 'multiImageAi' )
-    : (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate'))
-    ? 'voiceElaborate'
-    : requiredCredits === 4
-    ? 'imageAi'
-    : (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill'))
-    ? 'voiceDrill'
-    : 'textAi';
+): Promise<CreditReservation> {
+  const featureKey = determineFeatureKey(body);
+  const amount = getRequiredCredits(featureKey);
+  const base = { userId: effectiveUserId, featureKey, amount };
 
   if (!effectiveUserId) {
     return {
-      hasPermission: false,
-      requiredCredits,
-      featureKey,
+      ...base,
+      ok: false,
       errorResponse: c.json({ error: "LOGIN_REQUIRED", reply: "Please log in to use AI Yamato." }, 401),
     };
   }
 
   try {
     const supabaseAdmin = getSupabaseAdmin(c.env);
-    if (supabaseAdmin) {
-      console.log(`🔍 [Supabase] Checking credits for user: ${effectiveUserId}, Feature: ${featureKey}, Required: ${requiredCredits}`);
+    console.log(`💳 [Supabase] Consuming credits for user: ${effectiveUserId}, Feature: ${featureKey}, Amount: ${amount}`);
 
-      const creditCheck = await validateUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-      const { hasEnough, currentCredits } = creditCheck;
+    const { ok, balance } = await consumeUserCredits(supabaseAdmin, effectiveUserId, amount, featureKey);
 
-      if (!hasEnough) {
-        if (currentCredits <= 0) {
-          return {
-            hasPermission: false,
-            requiredCredits,
-            featureKey,
-            errorResponse: c.json({
-              error: "ZERO_CREDITS",
-              message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
-              reply: "Your credit balance is 0. Please top up your credits to continue learning.",
-              currentCredits,
-              requiredCredits
-            }, 402)
-          };
-        }
-
+    if (!ok) {
+      if (balance <= 0) {
         return {
-          hasPermission: false,
-          requiredCredits,
-          featureKey,
+          ...base,
+          ok: false,
           errorResponse: c.json({
-            error: "PARTIAL_SHORTAGE",
-            message: `この機能には ${requiredCredits} クレジット必要ですが、現在の残高は ${currentCredits} クレジットです。`,
-            reply: `Insufficient credits. This action requires ${requiredCredits} credits (you have ${currentCredits}).`,
-            currentCredits,
-            requiredCredits
-          }, 402)
+            error: "ZERO_CREDITS",
+            message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
+            reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+            currentCredits: balance,
+            requiredCredits: amount,
+          }, 402),
         };
       }
+      return {
+        ...base,
+        ok: false,
+        errorResponse: c.json({
+          error: "PARTIAL_SHORTAGE",
+          message: `この機能には ${amount} クレジット必要ですが、現在の残高は ${balance} クレジットです。`,
+          reply: `Insufficient credits. This action requires ${amount} credits (you have ${balance}).`,
+          currentCredits: balance,
+          requiredCredits: amount,
+        }, 402),
+      };
     }
+
+    return { ...base, ok: true };
   } catch (dbErr: any) {
     // 残高を確認できないときは、使わせない（安全側に倒す）
-    console.error("❌ [Supabase] Database check exception caught:", dbErr?.message || String(dbErr));
+    console.error("❌ [Supabase] Credit consume exception:", dbErr?.message || String(dbErr));
     return {
-      hasPermission: false,
-      requiredCredits,
-      featureKey,
+      ...base,
+      ok: false,
       errorResponse: c.json({
         error: "CREDIT_CHECK_FAILED",
         message: "クレジット残高を確認できませんでした。しばらくしてからもう一度お試しください。",
@@ -103,32 +112,21 @@ export async function checkCreditBalance(
       }, 503),
     };
   }
-
-  return { hasPermission: true, requiredCredits, featureKey };
 }
 
 /**
- * 💡 処理完了後にクレジットを引き落とす
- * @param env Cloudflare Bindings
- * @param effectiveUserId ユーザーID
- * @param featureKey 機能キー
- * @param requiredCredits 消費クレジット数
+ * ↩️ AI の処理が失敗したときに、先に引いたクレジットを返す
+ * 引いていない場合・返却済みの場合は何もしない。
  */
-export async function executeCreditDeduction(
-  env: any,
-  effectiveUserId: string,
-  featureKey: FeatureKey,
-  requiredCredits: number
-) {
-  if (!effectiveUserId) return;
+export async function refundCredits(env: any, reservation: CreditReservation | null | undefined) {
+  if (!reservation || !reservation.ok || reservation.refunded) return;
+  reservation.refunded = true;
 
   try {
     const supabaseAdmin = getSupabaseAdmin(env);
-    if (supabaseAdmin) {
-      console.log(`💳 [Supabase] Deducting credits for user: ${effectiveUserId}, Feature: ${featureKey} (Cost: ${requiredCredits})`);
-      await deductUserCredits(supabaseAdmin, effectiveUserId, featureKey);
-    }
-  } catch (deductErr: any) {
-    console.error("❌ [Supabase] Failed to deduct credits:", deductErr?.message || String(deductErr));
+    console.log(`↩️ [Supabase] Refunding credits for user: ${reservation.userId}, Feature: ${reservation.featureKey} (+${reservation.amount})`);
+    await refundUserCredits(supabaseAdmin, reservation.userId, reservation.amount, reservation.featureKey);
+  } catch (refundErr: any) {
+    console.error("❌ [Supabase] Failed to refund credits:", refundErr?.message || String(refundErr));
   }
 }

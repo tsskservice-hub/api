@@ -4,7 +4,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { getRequiredCredits, FeatureKey } from "../credit-rules.js";
+import { FeatureKey } from "../credit-rules.js";
 
 /**
  * サーバーサイド用 Supabase 管理者クライアントを初期化する関数
@@ -64,77 +64,42 @@ export async function fetchUserCredits(supabaseAdmin: any, userId: string): Prom
 }
 
 /**
- * 2. 処理に必要なクレジット残高があるかを判定する検証関数
+ * 2. クレジットを「残高が足りるときだけ」1回で引く関数（データベース関数 consume_credits）
+ *    読む→計算→書き戻す、を分けないので、同時にリクエストが来ても二重使用できない
  */
-export async function validateUserCredits(
+export async function consumeUserCredits(
   supabaseAdmin: any,
   userId: string,
+  amount: number,
   featureKey: FeatureKey
-): Promise<{ hasEnough: boolean; currentCredits: number; requiredCredits: number }> {
-  const requiredCredits = getRequiredCredits(featureKey);
-  const currentCredits = await fetchUserCredits(supabaseAdmin, userId);
-
-  return {
-    hasEnough: currentCredits >= requiredCredits,
-    currentCredits,
-    requiredCredits,
-  };
+): Promise<{ ok: boolean; balance: number }> {
+  const { data, error } = await supabaseAdmin.rpc("consume_credits", {
+    p_user_id: userId,
+    p_amount: amount,
+    p_feature: featureKey,
+  });
+  if (error) {
+    throw new Error(`consume_credits failed: ${error.message}`);
+  }
+  return { ok: Boolean(data?.ok), balance: Number(data?.balance ?? 0) };
 }
 
 /**
- * 3. クレジットを安全に減算し、監査ログ（credit_transactions）を記録する関数
+ * 3. AI の処理が失敗したときに、引いたクレジットを返す関数（データベース関数 refund_credits）
  */
-export async function deductUserCredits(
+export async function refundUserCredits(
   supabaseAdmin: any,
   userId: string,
-  featureKey: FeatureKey,
-  customCost?: number
-): Promise<{ success: boolean; newBalance?: number; error?: string }> {
-  const cost = customCost ?? getRequiredCredits(featureKey);
-
-  try {
-    // 最新残高の再取得と安全な減算
-    const currentCredits = await fetchUserCredits(supabaseAdmin, userId);
-
-    if (currentCredits < cost) {
-      return { success: false, error: "クレジットが不足しています。" };
-    }
-
-    const newBalance = currentCredits - cost;
-
-    // profiles テーブルの残高を更新
-    const { error: updateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newBalance })
-      .eq("id", userId);
-
-    if (updateError) {
-      throw new Error(`Profile update failed: ${updateError.message}`);
-    }
-
-    // クレジット利用履歴（監査ログ）を credit_transactions に記録（テーブル未作成やエラーでも処理を止めないよう保護）
-    try {
-      const { error: txError } = await supabaseAdmin
-        .from("credit_transactions")
-        .insert({
-          user_id: userId,
-          amount: -cost,
-          feature_used: featureKey,
-          description: `Consumed for ${featureKey} execution`,
-        });
-
-      if (txError) {
-        console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
-      }
-    } catch (txEx: any) {
-      console.warn("⚠️ [supabase-admin.ts] credit_transactions への挿入スキップ:", txEx?.message);
-    }
-
-    console.log(`✨ [supabase-admin.ts] クレジット減算成功: ユーザー ${userId}, 消費: -${cost}, 残高: ${newBalance}`);
-    return { success: true, newBalance };
-  } catch (err: any) {
-    console.error("❌ [supabase-admin.ts] クレジット減算処理で例外発生:", err.message);
-    return { success: false, error: err.message };
+  amount: number,
+  featureKey: FeatureKey
+): Promise<void> {
+  const { error } = await supabaseAdmin.rpc("refund_credits", {
+    p_user_id: userId,
+    p_amount: amount,
+    p_feature: featureKey,
+  });
+  if (error) {
+    throw new Error(`refund_credits failed: ${error.message}`);
   }
 }
 

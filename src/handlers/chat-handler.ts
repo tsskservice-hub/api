@@ -8,7 +8,7 @@ import { getGoogleAccessToken } from '../services/google-auth';
 import { generateOpenAiTts } from '../services/tts-service';
 import { generateVisualAid } from '../services/imagen-service';
 import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
-import { checkCreditBalance, executeCreditDeduction } from './credit-handler';
+import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 
 /**
@@ -56,6 +56,8 @@ async function transcribeAudioToText(audioBase64: string, openaiApiKey: string):
 }
 
 export async function handleChatOrTtsRequest(c: Context) {
+  // 💳 先払いしたクレジット（失敗時に返すために try の外で持つ）
+  let reservation: CreditReservation | null = null;
   try {
     const body = (await c.req.json().catch(() => ({}))) as any;
     const isTtsEndpoint = c.req.path.includes("test-tts");
@@ -141,10 +143,10 @@ export async function handleChatOrTtsRequest(c: Context) {
       }, 500);
     }
 
-    // 💳 クレジットの事前チェック
-    const creditCheck = await checkCreditBalance(c, body, effectiveUserId);
-    if (!creditCheck.hasPermission) {
-      return creditCheck.errorResponse!;
+    // 💳 AI を呼ぶ前にクレジットを引く（残高が足りるときだけ・同時リクエストでも二重使用できない）
+    reservation = await reserveCredits(c, body, effectiveUserId);
+    if (!reservation.ok) {
+      return reservation.errorResponse!;
     }
 
     // 🔐 Google Access Token 取得
@@ -173,6 +175,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     const promptResult = await dispatchSystemPrompt(appType, promptOptions, body.systemPrompt);
 
     if (!promptResult.success) {
+      await refundCredits(c.env, reservation);
       return c.json(promptResult.errorResponse, 400);
     }
 
@@ -237,6 +240,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     if (!vertexRes.ok) {
       const errText = await vertexRes.text();
       console.error("❌ Vertex AI API Error:", errText);
+      await refundCredits(c.env, reservation);
       return c.json({ error: "Vertex AI API Error: " + errText }, 500);
     }
 
@@ -273,9 +277,6 @@ export async function handleChatOrTtsRequest(c: Context) {
       }
     }
 
-    // 💳 クレジット引き落としの実行
-    await executeCreditDeduction(c.env, effectiveUserId, creditCheck.featureKey, creditCheck.requiredCredits);
-
     // 📤 レスポンス返却（文字起こし結果 transcript も含めることでフロント側で確認可能）
     return c.json({ 
       reply: aiReply, 
@@ -286,6 +287,7 @@ export async function handleChatOrTtsRequest(c: Context) {
   } catch (e: any) {
     console.error("❌ [CHAT-HANDLER CRITICAL ERROR]:", e?.message || String(e));
     console.error("❌ [ERROR STACK]:", e?.stack);
+    await refundCredits(c.env, reservation);
     
     return c.json(
       {
