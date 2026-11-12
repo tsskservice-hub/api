@@ -8,7 +8,7 @@ import { handleChatOrTtsRequest } from './handlers/chat-handler';
 import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
-import { getSupabaseAdmin, addUserCredits } from './services/supabase-admin';
+import { requireAuth } from './services/auth';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -24,7 +24,7 @@ type Bindings = {
   YAMATO_KNOWLEDGE?: KVNamespace;
 };
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: Bindings; Variables: { userId: string } }>();
 
 // 💡 CORS ミドルウェア設定
 app.use('*', async (c, next) => {
@@ -48,12 +48,19 @@ app.use('*', async (c, next) => {
   await next();
 });
 
+// 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
+// ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session']) {
+  app.use(path, requireAuth);
+}
+
 // 💡 ナレッジ一括同期エンドポイント
 app.post('/api/sync-knowledge', async (c) => {
   const authHeader = c.req.header('Authorization');
   const expectedKey = c.env.SYNC_API_KEY;
 
-  if (expectedKey && authHeader !== 'Bearer ' + expectedKey) {
+  // SYNC_API_KEY が未設定の場合も拒否する（未設定だと誰でも書き込めてしまうため）
+  if (!expectedKey || authHeader !== 'Bearer ' + expectedKey) {
     console.warn("⚠️ Unauthorized sync attempt detected.");
     return c.json({ success: false, error: 'Unauthorized: Invalid or missing API key' }, 401);
   }
@@ -74,81 +81,8 @@ app.post('/api/sync-knowledge', async (c) => {
   }
 });
 
-// 💡 クレジットチャージ（加算）用 API エンドポイント
-app.post('/api/credits/charge', async (c) => {
-  try {
-    const body = await c.req.json<{ userId: string; amount: number; description?: string }>();
-    const { userId, amount, description } = body;
-
-    if (!userId || typeof amount !== 'number') {
-      return c.json({ success: false, error: 'Invalid request: userId and amount are required.' }, 400);
-    }
-
-    const supabaseAdmin = getSupabaseAdmin(c.env);
-
-    const result = await addUserCredits(
-      supabaseAdmin,
-      userId,
-      amount,
-      description || "User purchased/charged credits"
-    );
-
-    if (!result.success) {
-      return c.json({ success: false, error: result.error || 'Failed to add credits.' }, 400);
-    }
-
-    return c.json({
-      success: true,
-      newBalance: result.newBalance,
-      message: `Successfully added ${amount} credits.`
-    });
-  } catch (err: any) {
-    console.error("❌ [API] /api/credits/charge エラー:", err?.message || String(err));
-    return c.json({ success: false, error: err?.message || 'Internal Server Error' }, 500);
-  }
-});
-
-// 💡 クイズ回答チェックと正解時のクレジット報酬付与エンドポイント（安全なサーバー側処理）
-app.post('/api/quiz/submit', async (c) => {
-  try {
-    const body = await c.req.json<{ userId: string; quizId?: string; isCorrect?: boolean }>();
-    const { userId, quizId, isCorrect } = body;
-
-    if (!userId) {
-      return c.json({ success: false, error: 'Invalid request: userId is required.' }, 400);
-    }
-
-    // 正解していない場合は報酬を付与しない
-    if (!isCorrect) {
-      return c.json({ success: true, correct: false, message: '不正解です。' });
-    }
-
-    const supabaseAdmin = getSupabaseAdmin(c.env);
-
-    // 正解したので 2 クレジットを安全に加算
-    const result = await addUserCredits(
-      supabaseAdmin,
-      userId,
-      2,
-      `Daily quiz reward for quizId: ${quizId || 'general'}`
-    );
-
-    if (!result.success) {
-      return c.json({ success: false, error: result.error || 'Failed to add reward credits.' }, 400);
-    }
-
-    return c.json({
-      success: true,
-      correct: true,
-      rewardCredits: 2,
-      newBalance: result.newBalance,
-      message: '正解です！2クレジットを獲得しました。'
-    });
-  } catch (err: any) {
-    console.error("❌ [API] /api/quiz/submit エラー:", err?.message || String(err));
-    return c.json({ success: false, error: err?.message || 'Internal Server Error' }, 500);
-  }
-});
+// ※ /api/credits/charge と /api/quiz/submit は、だれでもクレジットを増やせてしまうため削除した。
+//   クレジットの加算は Stripe Webhook（ポータル側）でのみ行う。
 
 // 💡 スキーマ配信用エンドポイント
 app.get('/api/schema/:appType', (c) => {

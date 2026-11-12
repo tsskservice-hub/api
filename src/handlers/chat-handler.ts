@@ -95,7 +95,8 @@ export async function handleChatOrTtsRequest(c: Context) {
     }
 
     // 💬 2. フルカスケード型 AI チャット（音声入力 or テキスト入力 → STT → Vertex AI）処理
-    const effectiveUserId = body.userId || "test-guest-user";
+    // 🔐 ユーザーIDはログイン確認（requireAuth）で特定したものだけを使う
+    const effectiveUserId: string = c.get('userId');
     const openaiApiKey = c.env.OPENAI_API_KEY;
 
     let userMessage = body.message;

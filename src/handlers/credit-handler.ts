@@ -42,8 +42,13 @@ export async function checkCreditBalance(
     ? 'voiceDrill'
     : 'textAi';
 
-  if (effectiveUserId === "test-guest-user") {
-    return { hasPermission: true, requiredCredits, featureKey };
+  if (!effectiveUserId) {
+    return {
+      hasPermission: false,
+      requiredCredits,
+      featureKey,
+      errorResponse: c.json({ error: "LOGIN_REQUIRED", reply: "Please log in to use AI Yamato." }, 401),
+    };
   }
 
   try {
@@ -85,7 +90,18 @@ export async function checkCreditBalance(
       }
     }
   } catch (dbErr: any) {
+    // 残高を確認できないときは、使わせない（安全側に倒す）
     console.error("❌ [Supabase] Database check exception caught:", dbErr?.message || String(dbErr));
+    return {
+      hasPermission: false,
+      requiredCredits,
+      featureKey,
+      errorResponse: c.json({
+        error: "CREDIT_CHECK_FAILED",
+        message: "クレジット残高を確認できませんでした。しばらくしてからもう一度お試しください。",
+        reply: "We could not check your credit balance. Please try again later.",
+      }, 503),
+    };
   }
 
   return { hasPermission: true, requiredCredits, featureKey };
@@ -104,7 +120,7 @@ export async function executeCreditDeduction(
   featureKey: FeatureKey,
   requiredCredits: number
 ) {
-  if (effectiveUserId === "test-guest-user") return;
+  if (!effectiveUserId) return;
 
   try {
     const supabaseAdmin = getSupabaseAdmin(env);

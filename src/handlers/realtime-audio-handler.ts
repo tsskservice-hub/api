@@ -11,7 +11,8 @@ import { buildEoyOralAcceleratedPrompt } from '../prompts/eoy-oral-accelerated';
 export async function handleRealtimeSessionRequest(c: Context) {
   try {
     const body = (await c.req.json().catch(() => ({}))) as any;
-    const effectiveUserId = body.userId || "test-guest-user";
+    // 🔐 ユーザーIDはログイン確認（requireAuth）で特定したものだけを使う
+    const effectiveUserId: string = c.get('userId');
     const appType = body.appType || "";
     const lessonSlug = body.lessonSlug || "obento-unit-4-lesson-1";
     const customTopic = body.topic || "家族の人数や構成、ペットについての質問と答え方の練習";
