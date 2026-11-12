@@ -17,6 +17,8 @@
  * - 写真の品質が原因で読めない場合は「撮り直し」として提出回数に数えない（撮り直しにも別の上限あり）
  * - 画像はデフォルトで保存しない。クラスで保存期間が設定されている場合のみ非公開バケットに保存し、削除予定日時を記録する
  * - 画像を AI に渡すのは read の1回だけ。feedback は読み取ったテキストだけで行う（費用削減）
+ * - feedback には、このレッスンとそれより前のレッスンの語彙（kl_vocabulary を lesson_id で取得）を入れ、
+ *   生徒のレベルに合った直しをさせる。レッスンの順番は edu_lessons.slug（obento-unit-4-lesson-1）で決める
  *
  * 使う環境変数（すべて既存のもの）:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -127,6 +129,95 @@ async function loadTask(admin: SupabaseClient, by: { lessonId?: string; taskId?:
   else return null;
   const { data } = await query.order('created_at', { ascending: true }).limit(1).maybeSingle();
   return data;
+}
+
+// ---------- 習った語彙（このレッスンとそれより前のレッスン） ----------
+
+interface LearnedVocabulary {
+  /** このレッスンの語彙 */
+  current: { label: string; words: string[] } | null;
+  /** それより前のレッスンの語彙（古い順） */
+  earlier: { label: string; words: string[] }[];
+}
+
+/** slug（例: obento-unit-4-lesson-1）から教科書名・ユニット番号・レッスン番号を取り出す */
+function parseLessonSlug(slug: unknown) {
+  const match = typeof slug === 'string' ? slug.match(/^(.+)-unit-(\d+)-lesson-(\d+)$/) : null;
+  return match ? { book: match[1], unit: Number(match[2]), lesson: Number(match[3]) } : null;
+}
+
+/**
+ * 課題のレッスンと、同じ教科書のそれより前のすべてのレッスンの語彙を kl_vocabulary から取得する。
+ * レッスンの順番は edu_lessons.slug のユニット番号・レッスン番号で決める
+ * （kl_vocabulary.mapping_id と edu_topics.sort_order は使わない）。
+ * slug の形が違う場合は、このレッスンの語彙だけを返す。取得に失敗した場合は null（語彙なしでフィードバックする）。
+ */
+async function loadLearnedVocabulary(admin: SupabaseClient, lessonId: string): Promise<LearnedVocabulary | null> {
+  try {
+    const { data: lesson } = await admin.from('edu_lessons').select('id, slug').eq('id', lessonId).maybeSingle();
+    if (!lesson) return null;
+    const target = parseLessonSlug(lesson.slug);
+
+    // 対象のレッスン（古い順）
+    let lessons: { id: string; unit: number; lesson: number }[] = [{ id: lesson.id, unit: target?.unit ?? 0, lesson: target?.lesson ?? 0 }];
+    if (target) {
+      const { data: bookLessons } = await admin.from('edu_lessons').select('id, slug').like('slug', `${target.book}-unit-%`);
+      lessons = (bookLessons ?? [])
+        .map((l) => ({ id: l.id as string, parsed: parseLessonSlug(l.slug) }))
+        .filter((l) => l.parsed && l.parsed.book === target.book)
+        .map((l) => ({ id: l.id, unit: l.parsed!.unit, lesson: l.parsed!.lesson }))
+        .filter((l) => l.unit < target.unit || (l.unit === target.unit && l.lesson <= target.lesson))
+        .sort((a, b) => a.unit - b.unit || a.lesson - b.lesson);
+    }
+
+    const { data: vocab, error } = await admin
+      .from('kl_vocabulary')
+      .select('lesson_id, jp_text, english_text, order_index')
+      .in('lesson_id', lessons.map((l) => l.id))
+      .order('order_index', { ascending: true });
+    if (error) throw error;
+
+    const wordsByLesson = new Map<string, string[]>();
+    for (const v of vocab ?? []) {
+      if (!v.jp_text) continue;
+      const list = wordsByLesson.get(v.lesson_id) ?? [];
+      list.push(v.english_text ? `${v.jp_text} (${v.english_text})` : v.jp_text);
+      wordsByLesson.set(v.lesson_id, list);
+    }
+
+    const groups = lessons
+      .map((l) => ({ id: l.id, label: target ? `Unit ${l.unit} Lesson ${l.lesson}` : 'This lesson', words: wordsByLesson.get(l.id) ?? [] }))
+      .filter((g) => g.words.length > 0);
+    const current = groups.find((g) => g.id === lesson.id) ?? null;
+    return {
+      current: current ? { label: current.label, words: current.words } : null,
+      earlier: groups.filter((g) => g.id !== lesson.id).map((g) => ({ label: g.label, words: g.words })),
+    };
+  } catch (err) {
+    console.error(`${LOG_PREFIX} could not load learned vocabulary:`, err);
+    return null;
+  }
+}
+
+/** プロンプトに差し込む「習った語彙」の部分 */
+function buildVocabularySection(vocab: LearnedVocabulary | null) {
+  if (!vocab || (!vocab.current && vocab.earlier.length === 0)) return '';
+  const lines = [
+    ...(vocab.current ? [`${vocab.current.label} (THIS lesson, just learned): ${vocab.current.words.join(', ')}`] : []),
+    ...vocab.earlier.map((g) => `${g.label}: ${g.words.join(', ')}`),
+  ];
+
+  return `
+Vocabulary the student has learned so far (this lesson and all earlier lessons):
+${lines.join('\n')}
+
+How to use this vocabulary list:
+- The student is at this level. Keep your reaction and your corrections within these words as much as possible.
+- When a correction needs a word, choose one from this list whenever one fits.
+- If a good correction really needs a word that is NOT on the list, you may use it, but start its explanation_en with "New word:" and give its meaning, so the student knows they have not learned it yet.
+- Do not mark a word as wrong only because it is not on the list. The student may know other words.
+- If the student used words from THIS lesson correctly, mention it in overall_en.
+`;
 }
 
 async function loadUsage(admin: SupabaseClient, userId: string, taskId: string) {
@@ -264,7 +355,7 @@ Image quality is judged separately from handwriting. Set image_quality to "poor"
 Respond with JSON only, no other text:
 {"image_quality":"ok"|"poor","quality_issue_en":string|null,"content_type":"japanese"|"blank"|"not_japanese","transcription":string,"unreadable_count":number}`;
 
-function buildFeedbackSystemPrompt(task: any) {
+function buildFeedbackSystemPrompt(task: any, vocab: LearnedVocabulary | null) {
   const points = (task.required_points ?? [])
     .map((p: any) => `- key "${p.key}": ${p.label_en}${p.label_ja ? `（${p.label_ja}）` : ''}`)
     .join('\n');
@@ -276,7 +367,7 @@ Task given to the student: ${task.instructions_en}
 
 Information the student's message must get across to you:
 ${points || '- (none specified)'}
-
+${buildVocabularySection(vocab)}
 You will receive the TRANSCRIPTION of the student's handwriting: exactly what a reader could read. ［？］ means a character nobody could read. You may also receive the student's INTENDED TEXT (what they say they meant to write).
 
 How to respond:
@@ -508,10 +599,13 @@ async function handleFeedback(admin: SupabaseClient, userId: string, env: Env, b
         : 'The student confirmed the transcription matches what they meant to write.',
     ].join('\n\n');
 
+    // このレッスンとそれより前のレッスンで習った語彙を、プロンプトに動的に入れる
+    const vocab = await loadLearnedVocabulary(admin, task.lesson_id);
+
     feedback = await callGemini(
       env,
       env.VERTEX_AI_FEEDBACK_MODEL || DEFAULT_FEEDBACK_MODEL,
-      buildFeedbackSystemPrompt(task),
+      buildFeedbackSystemPrompt(task, vocab),
       [{ text: userText }],
       { maxOutputTokens: 8192, temperature: 0.4 }
     );

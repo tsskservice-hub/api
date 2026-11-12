@@ -226,8 +226,9 @@ export async function buildFoundationLayoutPrompt(
   if (effectiveFaqList && Array.isArray(effectiveFaqList) && effectiveFaqList.length > 0) {
     faqKnowledgeBankText = effectiveFaqList
       .map(
+        // 💡 現行の kl_app 'FAQ' は { id, category, question, answer }。旧形式（questionEn / expertGuidance 等）にも対応
         (faq: any) =>
-          `* ID: ${faq.id || "N/A"} [Category: ${faq.category || "general"}] (Tags: ${faq.tags?.join(", ") || ""})\n  - Q (En): ${faq.questionEn || faq.questions?.[0] || ""}\n  - Q (Jp): ${faq.questionJp || ""}\n  - Expert Guidance & Answer: ${faq.expertGuidance || faq.answerHtml || ""}`
+          `* ID: ${faq.id || "N/A"} [Category: ${faq.category || "general"}] (Tags: ${faq.tags?.join(", ") || ""})\n  - Q (En): ${faq.question || faq.questionEn || faq.questions?.[0] || ""}\n  - Q (Jp): ${faq.questionJp || ""}\n  - Expert Guidance & Answer: ${faq.answer || faq.expertGuidance || faq.answerHtml || ""}`
       )
       .join("\n\n");
   } else {

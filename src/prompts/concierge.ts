@@ -45,28 +45,33 @@ export async function buildConciergePrompt(options: ConciergePromptOptions = {})
   // =========================================================================
   // 1. モジュール一覧の抽出（Supabaseデータのみ）
   // =========================================================================
+  // 💡 portalContent.sections は api-sync-knowledge.ts が kl_app の CONTENT_* 行から組み立てる
   let portalModulesText = "";
-  if (portalContent?.modulesSection) {
-    const sec1 = portalContent.modulesSection.section1;
-    const sec2 = portalContent.modulesSection.section2;
-
-    const formatModules = (sec: any) => {
-      if (!sec || !sec.modules || !Array.isArray(sec.modules)) return "";
-      return sec.modules.map((m: any) => {
-        return `    - [${m.name}] (Category: ${m.category}, Path: ${m.path || 'N/A'}, Status: ${m.isComingSoon ? 'Coming Soon' : 'Available'})
-      Description: ${m.description}`;
+  const portalSections: any[] = Array.isArray(portalContent?.sections) ? portalContent.sections : [];
+  if (portalSections.length > 0) {
+    const formatModules = (modules: any[]) =>
+      modules.map((m: any) => {
+        return `    - [${m.name}] (Category: ${m.category || 'N/A'}, Path: ${m.path || 'N/A'}, Status: ${m.isComingSoon ? 'Coming Soon' : 'Available'})
+      Description: ${m.description || ''}`;
       }).join("\n");
-    };
 
-    portalModulesText = `
-    * ${sec1?.title || 'Section 1'}:
-${formatModules(sec1)}
-
-    * ${sec2?.title || 'Section 2'}:
-${formatModules(sec2)}`;
+    portalModulesText = portalSections
+      .map((sec: any) => `
+    * ${sec.title}:
+${formatModules(sec.modules || [])}`)
+      .join("\n");
   } else {
     portalModulesText = "    * [DB ERROR] No portal modules data found in Database.";
   }
+
+  // 💡 クレジット付与ルール（CONTENT_OTHER.systemRules）
+  const rules = portalContent?.systemRules || {};
+  const systemRulesText = Object.keys(rules).length > 0
+    ? `  - Welcome bonus credits on sign-up: ${rules.welcomeBonusCredits ?? 'N/A'}
+  - Daily quiz reward credits: ${rules.dailyQuizCredits ?? 'N/A'}
+  - Daily quiz credit expiration (days): ${rules.dailyQuizExpirationDays ?? 'N/A'}
+  - Max photos per upload: ${rules.maxPhotosAllowed ?? 'N/A'}`
+    : "  - [DB ERROR] No system rules found in Database.";
 
 // =========================================================================
   // 2. 料金プランの抽出（階層を自動で探索してすべて取得）
@@ -185,6 +190,9 @@ ${pricingText}
 
     - Credit Consumption Guide & Rules (STRICTLY FROM DATABASE):
 ${creditGuideText}
+
+    - Credit Rewards & Upload Limits (STRICTLY FROM DATABASE):
+${systemRulesText}
 
     - Legal, Privacy, Account & Support Information (STRICTLY FROM DATABASE):
 ${legalContentText}
