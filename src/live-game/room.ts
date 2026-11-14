@@ -14,7 +14,7 @@
  */
 import { DurableObject } from 'cloudflare:workers';
 import { getSupabaseAdmin } from '../services/supabase-admin';
-import unsuitableWordsData from '../../../yamato-portal/app/data/unsuitable-words.json';
+import unsuitableWordsData from '../data/unsuitable-words.json';
 import {
   CORRECT_PER_CHEST,
   loadContent,
@@ -69,9 +69,10 @@ const INVISIBLE_CHARS = new RegExp('[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u20
 const HOST_UPDATE_MS = 400;
 
 /**
- * 自由モードの名前で使えない言葉。ニックネームのチェック（ポータルの app/validations/profile.ts）と
- * 同じ一覧（yamato-portal/app/data/unsuitable-words.json）をそのまま使う。一覧を直せば両方に効く
- * （api はデプロイするときにこのファイルを読み込むので、一覧を直したら api もデプロイし直す）。
+ * 自由モードの名前で使えない言葉。ニックネームのチェック（ポータルの app/validations/profile.ts）と同じ一覧。
+ * api は Cloudflare のビルドで api のリポジトリだけからデプロイされるので、ポータルの
+ * yamato-portal/app/data/unsuitable-words.json のコピーを src/data/ に置いている。
+ * 一覧を直すときは、両方のファイルを同じ内容にする。
  */
 const UNSUITABLE_WORDS: string[] = Object.values(unsuitableWordsData as Record<string, string[]>)
   .flat()
