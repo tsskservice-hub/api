@@ -4,6 +4,7 @@
  */
 
 import { Context } from 'hono';
+import { corsHeadersFor } from './cors';
 
 /**
  * 🎙️ 音声認識（STT: Speech-to-Text）ハンドラー関数
@@ -11,7 +12,8 @@ import { Context } from 'hono';
  */
 export async function handleSttRequest(c: Context) {
   try {
-    const origin = c.req.header('Origin') || '*';
+    // 🔐 CORS は許可リスト（services/cors.ts）に合うサイトだけ
+    const corsHeaders = corsHeadersFor(c.req.header('Origin'));
     const openaiApiKey = c.env.OPENAI_API_KEY;
 
     if (!openaiApiKey) {
@@ -63,10 +65,7 @@ export async function handleSttRequest(c: Context) {
     return c.json(
       { userText: transcribedText, text: transcribedText, success: true },
       200,
-      {
-        "Access-Control-Allow-Origin": origin,
-        "Access-Control-Allow-Credentials": "true",
-      }
+      corsHeaders
     );
   } catch (err: any) {
     console.error("❌ Exception in STT Handler:", err);

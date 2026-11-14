@@ -91,7 +91,7 @@ export async function handleChatOrTtsRequest(c: Context) {
 
       const voiceToUse = body.voice || "fable";
       const speedToUse = typeof body.speed === "number" ? body.speed : 1.0;
-      const origin = c.req.header("Origin") || "*";
+      const origin = c.req.header("Origin") || null;
 
       return await generateOpenAiTts(textToSpeak, openaiApiKey, voiceToUse, speedToUse, origin);
     }

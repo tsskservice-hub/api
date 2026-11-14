@@ -9,6 +9,7 @@ import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler'
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
+import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 
 type Bindings = {
@@ -27,21 +28,17 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings; Variables: { userId: string } }>();
 
-// 💡 CORS ミドルウェア設定
+// 💡 CORS ミドルウェア設定（許可リストは services/cors.ts。完全一致・正規表現で判定）
 app.use('*', async (c, next) => {
-  const origin = c.req.header('Origin') || '';
-  const isAllowed =
-    origin.endsWith('jptutoraiyamato.com') ||
-    origin.endsWith('.pages.dev') ||
-    origin.includes('pages.dev') ||
-    origin.includes('localhost') ||
-    origin.includes('127.0.0.1');
-  const allowedOrigin = isAllowed ? origin : 'https://jptutoraiyamato.com';
+  const allowedOrigin = getAllowedOrigin(c.req.header('Origin'));
 
-  c.header('Access-Control-Allow-Origin', allowedOrigin);
-  c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  c.header('Access-Control-Allow-Credentials', 'true');
+  c.header('Vary', 'Origin');
+  if (allowedOrigin) {
+    c.header('Access-Control-Allow-Origin', allowedOrigin);
+    c.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    c.header('Access-Control-Allow-Credentials', 'true');
+  }
 
   if (c.req.method === 'OPTIONS') {
     return c.body(null, 204);

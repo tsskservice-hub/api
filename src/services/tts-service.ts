@@ -2,6 +2,7 @@
  * @file src/services/tts-service.ts
  * @description OpenAI API を利用した音声合成（OpenAI TTS）独立モジュール
  */
+import { corsHeadersFor } from './cors';
 
 /**
  * 🔊 音声合成（TTS: Text-to-Speech）処理関数
@@ -9,7 +10,7 @@
  * @param openaiApiKey OpenAI API Key
  * @param voice ボイス名（デフォルト: "fable"）
  * @param speed 再生速度（デフォルト: 1.0）
- * @param origin CORS用 Origin ヘッダー
+ * @param origin リクエストの Origin ヘッダー（許可リストに合うときだけ CORS ヘッダーを付ける）
  * @returns 音声バイナリデータ（audio/mpeg Response）
  */
 export async function generateOpenAiTts(
@@ -17,7 +18,7 @@ export async function generateOpenAiTts(
   openaiApiKey: string,
   voice: string = "fable",
   speed: number = 1.0,
-  origin: string = "*"
+  origin: string | null = null
 ): Promise<Response> {
   // 💡 ドメイン文字列の動的結合（URL伏字化回避）
   const oDomain = ["open", "ai"].join("");
@@ -49,8 +50,7 @@ export async function generateOpenAiTts(
     status: 200,
     headers: {
       "Content-Type": "audio/mpeg",
-      "Access-Control-Allow-Origin": origin,
-      "Access-Control-Allow-Credentials": "true",
+      ...corsHeadersFor(origin),
     },
   });
 }
