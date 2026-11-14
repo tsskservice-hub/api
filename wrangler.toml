@@ -18,3 +18,12 @@ SUPABASE_URL = "https://ybquwzoreecxxbewjpdn.supabase.co"
 [[kv_namespaces]]
 binding = "YAMATO_KNOWLEDGE"
 id = "c103e53760f94dabb2d9b4e4f915d036"
+
+# クラスのライブゲームの部屋（src/live-game/room.ts）。1 ゲームに 1 つ
+[[durable_objects.bindings]]
+name = "LIVE_GAME"
+class_name = "LiveGameRoom"
+
+[[migrations]]
+tag = "v1-live-game"
+new_sqlite_classes = ["LiveGameRoom"]

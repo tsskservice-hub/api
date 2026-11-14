@@ -12,6 +12,10 @@ import { requireAuth } from './services/auth';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
+import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLiveGameSocket } from './handlers/live-game-handler';
+
+// クラスのライブゲームの部屋（Durable Object）。wrangler.toml の durable_objects から参照される
+export { LiveGameRoom } from './live-game/room';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -25,6 +29,7 @@ type Bindings = {
   AIYAMATO_SYSTEM_PROMPT?: string;
   OPENAI_API_KEY?: string;
   YAMATO_KNOWLEDGE?: KVNamespace;
+  LIVE_GAME: DurableObjectNamespace;
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: { userId: string } }>();
@@ -49,7 +54,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine']) {
   app.use(path, requireAuth);
 }
 
@@ -126,6 +131,10 @@ app.post('/api/realtime/session', handleRealtimeSessionRequest);
 app.get('/api/textbook-lesson-writing', handleWritingStatusRequest);
 app.post('/api/textbook-lesson-writing', handleWritingPostRequest);
 
+// 🎮 クラスのライブゲーム（先生が部屋を作る／いま入れる部屋を調べる）
+app.post('/api/live-game/create', handleLiveGameCreate);
+app.get('/api/live-game/mine', handleLiveGameMine);
+
 // 404 ハンドラー
 app.notFound((c) => c.json({ error: 'Route Not Found' }, 404));
 
@@ -137,7 +146,12 @@ app.onError((err, c) => {
 
 // HTTP は Hono、毎日の定期処理（wrangler.toml の [triggers] crons）は scheduled で受ける
 export default {
-  fetch: app.fetch,
+  fetch(request: Request, env: Bindings, ctx: any) {
+    // ライブゲームの WebSocket は Hono を通さずに部屋へ渡す
+    const gameId = matchLiveGameSocket(request);
+    if (gameId) return handleLiveGameSocket(request, env, gameId);
+    return app.fetch(request, env, ctx);
+  },
   // 保存期間が過ぎた手書きの写真を消す（プライバシーポリシー 5 章・FAQ の約束）
   async scheduled(_event: unknown, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {
     ctx.waitUntil(
