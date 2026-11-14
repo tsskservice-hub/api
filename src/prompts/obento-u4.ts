@@ -18,13 +18,15 @@ export interface ObentoU4YamatoOptions extends YamatoApiCommonOptions {
  */
 export async function buildObentoU4YamatoPrompt(options: ObentoU4YamatoOptions = {}): Promise<string> {
   const { lessonSlug = 'lesson-1', ...baseOptions } = options;
+  // 新しい ID（family-1）と古い ID（obento-unit-4-lesson-1 / lesson-1）のどちらからもレッスン番号を読む
+  const lessonNumber = lessonSlug.match(/(?:^family-|lesson-)(\d+)$/)?.[1] ?? '1';
 
   // ==========================================
   // レッスン別 語彙・表現の完全制限ルール（混同防止用）
   // ==========================================
   let lessonSpecificRules = "";
 
-  if (lessonSlug.includes("lesson-1")) {
+  if (lessonNumber === "1") {
     lessonSpecificRules = `
       - ALLOWED VOCABULARY FOR THIS LESSON ONLY (Strictly use ONLY these):
         * 挨拶: こんにちは、ありがとう、さようなら
@@ -32,7 +34,7 @@ export async function buildObentoU4YamatoPrompt(options: ObentoU4YamatoOptions =
         * 家族・人数: かぞく、[1〜5の数字]人（ひとり、ふたり、さんにん、よにん、ごにん）、なんにん
         * ※ 他のレッスンの家族メンバーやペットの言葉は絶対に使わないでください。
     `;
-  } else if (lessonSlug.includes("lesson-2")) {
+  } else if (lessonNumber === "2") {
     lessonSpecificRules = `
       - ALLOWED VOCABULARY FOR THIS LESSON ONLY (Strictly use ONLY these):
         * 挨拶・状態: こんにちは、ありがとう、げんきですか
@@ -40,7 +42,7 @@ export async function buildObentoU4YamatoPrompt(options: ObentoU4YamatoOptions =
         * 接続: 〜と〜
         * ※ レッスン1の人数やレッスン3のペットの言葉は絶対に使わないでください。
     `;
-  } else if (lessonSlug.includes("lesson-3")) {
+  } else if (lessonNumber === "3") {
     lessonSpecificRules = `
       - ALLOWED VOCABULARY FOR THIS LESSON ONLY (Strictly use ONLY these):
         * 挨拶・状態: こんにちは、ありがとう、げんきですか

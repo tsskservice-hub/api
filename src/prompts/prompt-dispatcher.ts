@@ -53,12 +53,14 @@ export interface PromptDispatcherResult {
  * 💡 appType に応じたシステムプロンプト文字列を非同期生成・振り分け
  * @param appType アプリケーション識別キー
  * @param promptOptions プロンプトパラメータ群
- * @param bodySystemPrompt クライアントから直接送信されたシステムプロンプト（存在する場合）
+ *
+ * 🔐 AI に渡す指示文は、必ずこのファイルで登録したもの（サーバー側）だけを使う。
+ *    ブラウザから送られた systemPrompt は受け付けない（AI の役割・安全方針を利用者が差し替えられてしまうため）。
+ *    登録されていない appType は、何が送られてきても UNREGISTERED_APP_PROMPT で断る。
  */
 export async function dispatchSystemPrompt(
   appType: string,
-  promptOptions: PromptOptions,
-  bodySystemPrompt?: string
+  promptOptions: PromptOptions
 ): Promise<PromptDispatcherResult> {
   let systemInstructionText = "";
 
@@ -110,7 +112,11 @@ export async function dispatchSystemPrompt(
       systemInstructionText = await buildImageExplanationYamatoPrompt(promptOptions);
       break;
 
-    // 💡 Obento Deluxe Unit 4 (レッスン1〜3および共通表記) のルーティング登録
+    // 💡 Family（Obento Deluxe Unit 4 に対応）。新しいレッスン ID は family-1〜3。
+    //    古い ID（obento-unit-4-lesson-N）は、ポータルを切り替えるまでの間のために残す
+    case "family-1":
+    case "family-2":
+    case "family-3":
     case "obento-u4":
     case "obento-unit4":
     case "obento-unit-4-lesson-1":
@@ -119,7 +125,9 @@ export async function dispatchSystemPrompt(
       systemInstructionText = await buildObentoU4YamatoPrompt(promptOptions);
       break;
 
-    // 💡 Obento Deluxe Unit 5 のルーティング登録
+    // 💡 Pets（Obento Deluxe Unit 5 に対応）
+    case "pets-1":
+    case "pets-2":
     case "obento-u5":
     case "obento-unit5":
     case "obento-unit-5-lesson-1":
@@ -128,7 +136,9 @@ export async function dispatchSystemPrompt(
       systemInstructionText = await buildObentoU5YamatoPrompt(promptOptions);
       break;
 
-    // 💡 Obento Deluxe Unit 6 のルーティング登録
+    // 💡 Food（Obento Deluxe Unit 6 に対応）
+    case "food-1":
+    case "food-2":
     case "obento-u6":
     case "obento-unit6":
     case "obento-unit-6-lesson-1":
@@ -138,19 +148,15 @@ export async function dispatchSystemPrompt(
       break;
 
     default:
-      if (bodySystemPrompt) {
-        systemInstructionText = bodySystemPrompt;
-      } else {
-        console.error(`❌ Unregistered appType or missing prompt builder: '${appType}'`);
-        return {
-          success: false,
-          errorResponse: {
-            error: "UNREGISTERED_APP_PROMPT",
-            message: `専用プロンプトが未設定の appType です: '${appType}'。`,
-            appType: appType,
-          },
-        };
-      }
+      console.error(`❌ Unregistered appType or missing prompt builder: '${appType}'`);
+      return {
+        success: false,
+        errorResponse: {
+          error: "UNREGISTERED_APP_PROMPT",
+          message: `専用プロンプトが未設定の appType です: '${appType}'。`,
+          appType: appType,
+        },
+      };
       break;
   }
 

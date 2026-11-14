@@ -16,7 +16,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
     // 🔐 ユーザーIDはログイン確認（requireAuth）で特定したものだけを使う
     const effectiveUserId: string = c.get('userId');
     const appType = body.appType || "";
-    const lessonSlug = body.lessonSlug || "obento-unit-4-lesson-1";
+    const lessonSlug = body.lessonSlug || "family-1";
     const customTopic = body.topic || "家族の人数や構成、ペットについての質問と答え方の練習";
 
     const openaiApiKey = c.env.OPENAI_API_KEY;
@@ -39,7 +39,10 @@ export async function handleRealtimeSessionRequest(c: Context) {
         userNickname: body.userNickname || "VCE Accelerated Student",
         env: c.env,
       });
-    } else if (appType.includes("obento-unit-4") || lessonSlug.includes("obento-unit-4")) {
+    } else if (
+      appType.includes("obento-unit-4") || lessonSlug.includes("obento-unit-4") ||
+      /^family-\d+$/.test(appType) || /^family-\d+$/.test(lessonSlug)
+    ) {
       // 📘 Obento Unit 4 初級・定着用の厳格プロンプトを構築
       dynamicSystemPrompt = await buildObentoU4YamatoPrompt({
         lessonSlug,

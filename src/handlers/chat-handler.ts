@@ -172,7 +172,7 @@ export async function handleChatOrTtsRequest(c: Context) {
       env: c.env,
     };
 
-    const promptResult = await dispatchSystemPrompt(appType, promptOptions, body.systemPrompt);
+    const promptResult = await dispatchSystemPrompt(appType, promptOptions);
 
     if (!promptResult.success) {
       await refundCredits(c.env, reservation);

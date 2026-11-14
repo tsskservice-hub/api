@@ -18,7 +18,8 @@
  * - 画像はデフォルトで保存しない。クラスで保存期間が設定されている場合のみ非公開バケットに保存し、削除予定日時を記録する
  * - 画像を AI に渡すのは read の1回だけ。feedback は読み取ったテキストだけで行う（費用削減）
  * - feedback には、このレッスンとそれより前のレッスンの語彙（kl_vocabulary を lesson_id で取得）を入れ、
- *   生徒のレベルに合った直しをさせる。レッスンの順番は edu_lessons.slug（obento-unit-4-lesson-1）で決める
+ *   生徒のレベルに合った直しをさせる。レッスンの順番はサイトの標準の順番 edu_lessons.site_order で決める
+ *   （教科書ごとの順番を使うのは、iiTomo などの対応を入れる時に検討する）
  *
  * 使う環境変数（すべて既存のもの）:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
@@ -140,34 +141,32 @@ interface LearnedVocabulary {
   earlier: { label: string; words: string[] }[];
 }
 
-/** slug（例: obento-unit-4-lesson-1）から教科書名・ユニット番号・レッスン番号を取り出す */
-function parseLessonSlug(slug: unknown) {
-  const match = typeof slug === 'string' ? slug.match(/^(.+)-unit-(\d+)-lesson-(\d+)$/) : null;
-  return match ? { book: match[1], unit: Number(match[2]), lesson: Number(match[3]) } : null;
-}
-
 /**
- * 課題のレッスンと、同じ教科書のそれより前のすべてのレッスンの語彙を kl_vocabulary から取得する。
- * レッスンの順番は edu_lessons.slug のユニット番号・レッスン番号で決める
- * （kl_vocabulary.mapping_id と edu_topics.sort_order は使わない）。
- * slug の形が違う場合は、このレッスンの語彙だけを返す。取得に失敗した場合は null（語彙なしでフィードバックする）。
+ * 課題のレッスンと、それより前のすべてのレッスンの語彙を kl_vocabulary から取得する。
+ * レッスンの順番はサイトの標準の順番（edu_lessons.site_order）で決める
+ * （slug の形・kl_vocabulary.mapping_id・edu_topics.sort_order は使わない）。
+ * site_order が入っていないレッスンでは、このレッスンの語彙だけを返す。取得に失敗した場合は null（語彙なしでフィードバックする）。
  */
 async function loadLearnedVocabulary(admin: SupabaseClient, lessonId: string): Promise<LearnedVocabulary | null> {
   try {
-    const { data: lesson } = await admin.from('edu_lessons').select('id, slug').eq('id', lessonId).maybeSingle();
+    const { data: lesson } = await admin
+      .from('edu_lessons')
+      .select('id, title_en, site_order')
+      .eq('id', lessonId)
+      .maybeSingle();
     if (!lesson) return null;
-    const target = parseLessonSlug(lesson.slug);
 
     // 対象のレッスン（古い順）
-    let lessons: { id: string; unit: number; lesson: number }[] = [{ id: lesson.id, unit: target?.unit ?? 0, lesson: target?.lesson ?? 0 }];
-    if (target) {
-      const { data: bookLessons } = await admin.from('edu_lessons').select('id, slug').like('slug', `${target.book}-unit-%`);
-      lessons = (bookLessons ?? [])
-        .map((l) => ({ id: l.id as string, parsed: parseLessonSlug(l.slug) }))
-        .filter((l) => l.parsed && l.parsed.book === target.book)
-        .map((l) => ({ id: l.id, unit: l.parsed!.unit, lesson: l.parsed!.lesson }))
-        .filter((l) => l.unit < target.unit || (l.unit === target.unit && l.lesson <= target.lesson))
-        .sort((a, b) => a.unit - b.unit || a.lesson - b.lesson);
+    let lessons: { id: string; title: string }[] = [{ id: lesson.id, title: lesson.title_en ?? 'This lesson' }];
+    if (typeof lesson.site_order === 'number') {
+      const { data: earlierLessons } = await admin
+        .from('edu_lessons')
+        .select('id, title_en, site_order')
+        .lte('site_order', lesson.site_order)
+        .order('site_order', { ascending: true });
+      if (earlierLessons && earlierLessons.length > 0) {
+        lessons = earlierLessons.map((l) => ({ id: l.id as string, title: (l.title_en as string) ?? 'Lesson' }));
+      }
     }
 
     const { data: vocab, error } = await admin
@@ -186,7 +185,7 @@ async function loadLearnedVocabulary(admin: SupabaseClient, lessonId: string): P
     }
 
     const groups = lessons
-      .map((l) => ({ id: l.id, label: target ? `Unit ${l.unit} Lesson ${l.lesson}` : 'This lesson', words: wordsByLesson.get(l.id) ?? [] }))
+      .map((l) => ({ id: l.id, label: `Lesson "${l.title}"`, words: wordsByLesson.get(l.id) ?? [] }))
       .filter((g) => g.words.length > 0);
     const current = groups.find((g) => g.id === lesson.id) ?? null;
     return {
