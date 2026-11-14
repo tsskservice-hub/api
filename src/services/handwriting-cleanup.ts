@@ -56,5 +56,50 @@ export async function deleteExpiredHandwritingImages(env: unknown): Promise<numb
   }
 
   console.log(`${LOG_PREFIX} deleted ${deleted} expired handwriting image(s).`);
+
+  const orphans = await deleteQueuedHandwritingImages(admin);
+  return deleted + orphans;
+}
+
+/**
+ * 記録ごと消えた写真（アカウント削除など）を消す。
+ * 写真付きの記録が消えると、データベースのトリガーが edu_image_deletion_queue に場所を入れる
+ * （yamato-portal/supabase/sql/20_handwriting_image_deletion_queue.sql）
+ */
+async function deleteQueuedHandwritingImages(admin: ReturnType<typeof getSupabaseAdmin>): Promise<number> {
+  let deleted = 0;
+
+  for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    const { data: rows, error } = await admin
+      .from('edu_image_deletion_queue')
+      .select('path')
+      .order('queued_at', { ascending: true })
+      .limit(BATCH_SIZE);
+
+    if (error) {
+      // 20 の SQL をまだ実行していないときもここに来る。期限切れの写真の削除には影響しない
+      console.error(`${LOG_PREFIX} could not read the deletion queue:`, error.message);
+      break;
+    }
+    if (!rows || rows.length === 0) break;
+
+    const paths = rows.map((r: { path: string }) => r.path);
+    const { error: removeError } = await admin.storage.from(IMAGE_BUCKET).remove(paths);
+    if (removeError) {
+      console.error(`${LOG_PREFIX} could not delete queued images:`, removeError.message);
+      break;
+    }
+
+    const { error: dequeueError } = await admin.from('edu_image_deletion_queue').delete().in('path', paths);
+    if (dequeueError) {
+      console.error(`${LOG_PREFIX} queued images deleted but queue not cleared:`, dequeueError.message);
+      break;
+    }
+
+    deleted += rows.length;
+    if (rows.length < BATCH_SIZE) break;
+  }
+
+  console.log(`${LOG_PREFIX} deleted ${deleted} handwriting image(s) whose records were removed.`);
   return deleted;
 }
