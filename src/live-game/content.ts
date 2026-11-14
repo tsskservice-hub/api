@@ -243,46 +243,73 @@ export type ChestItem = {
   description: string;
 };
 
+// 増えるもの：打ち出の小づち +10、竜宮城 +6、招き猫 +3、小判 +1
+// 減るもの：鬼 -10、天狗 -6、狐 -3（0 枚より下にはならない）
+// weight は出やすさ。合計に対する割合が出る確率になる
 const CHEST_ITEMS: (ChestItem & { weight: number; apply: (coins: number) => number })[] = [
   {
     id: 'kozuchi',
     name: 'Uchide no Kozuchi',
     nameJa: '打ち出の小づち',
-    description: 'Your coins are doubled!',
-    weight: 15,
-    apply: (c) => c * 2,
+    description: 'The magic mallet showers you with gold! +10 coins!',
+    weight: 5,
+    apply: (c) => c + 10,
+  },
+  {
+    id: 'urashima',
+    name: 'Ryūgū-jō',
+    nameJa: '竜宮城',
+    description: 'The turtle takes you to the Dragon Palace! +6 coins!',
+    weight: 9,
+    apply: (c) => c + 6,
   },
   {
     id: 'manekineko',
     name: 'Maneki-neko',
     nameJa: '招き猫',
-    description: '+10 coins!',
-    weight: 20,
-    apply: (c) => c + 10,
+    description: 'The lucky cat waves good fortune your way! +3 coins!',
+    weight: 14,
+    apply: (c) => c + 3,
   },
   {
     id: 'koban',
     name: 'Koban',
     nameJa: '小判',
-    description: '+5 coins!',
-    weight: 35,
-    apply: (c) => c + 5,
+    description: 'A gold coin! +1 coin.',
+    weight: 30,
+    apply: (c) => c + 1,
   },
   {
-    id: 'daruma',
-    name: 'Daruma',
-    nameJa: 'だるま',
-    description: '+3 coins!',
-    weight: 30,
-    apply: (c) => c + 3,
+    id: 'oni',
+    name: 'Oni',
+    nameJa: '鬼',
+    description: 'Oh no! An oni stole your gold! −10 coins.',
+    weight: 4,
+    apply: (c) => Math.max(0, c - 10),
+  },
+  {
+    id: 'tengu',
+    name: 'Tengu',
+    nameJa: '天狗',
+    description: 'A tengu swooped down and took your gold! −6 coins.',
+    weight: 6,
+    apply: (c) => Math.max(0, c - 6),
+  },
+  {
+    id: 'kitsune',
+    name: 'Kitsune',
+    nameJa: '狐',
+    description: 'A sly fox tricked you! −3 coins.',
+    weight: 10,
+    apply: (c) => Math.max(0, c - 3),
   },
   {
     // じゃんけん勝負のカード。金貨はここでは変わらず、相手を選んで勝負する（room.ts）
     id: 'janken',
     name: 'Janken Battle',
     nameJa: 'じゃんけん勝負',
-    description: 'Challenge someone to janken! The loser gives half of their coins to the winner.',
-    weight: 25,
+    description: 'Challenge someone to janken! The loser gives half of their coins (up to 10) to the winner.',
+    weight: 22,
     apply: (c) => c,
   },
 ];

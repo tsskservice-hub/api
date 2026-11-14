@@ -190,6 +190,8 @@ const SPEED_ANSWER_MS = 10_000;
 const SPEED_MIN_ANSWER_MS = 300;
 /** 早押しタイムで、負けた人が渡す金貨の割合（4 分の 1） */
 const SPEED_STAKE_DIVISOR = 4;
+/** じゃんけん・早押しタイムで一度に動く金貨の上限 */
+const MAX_STAKE = 10;
 /** 早押しタイムでお休みになった人に渡す金貨 */
 const SPEED_BYE_COINS = 3;
 /** ヤマトの問題：最初の回と、その後の間隔（早押しタイムと交互になる） */
@@ -538,7 +540,9 @@ export class LiveGameRoom extends DurableObject {
         } else {
           this.send(ws, { t: 'chestResult', box, item, before, coins });
           if (item.id === 'kozuchi' && player.name) {
-            this.addFeed(`🔨 ${player.name} found the Uchide no Kozuchi — coins doubled! (${before} → ${coins})`);
+            this.addFeed(`🔨 ${player.name} found the Uchide no Kozuchi — +10 coins!`);
+          } else if (item.id === 'oni' && player.name) {
+            this.addFeed(`👹 An oni stole ${before - coins} coins from ${player.name}!`);
           }
         }
         this.scheduleHostUpdate();
@@ -680,11 +684,11 @@ export class LiveGameRoom extends DurableObject {
     const outcomeA = judgeJanken(handA, handB);
     let transfer = 0;
     if (outcomeA === 'win') {
-      transfer = Math.floor(b.coins / 2);
+      transfer = Math.min(MAX_STAKE, Math.floor(b.coins / 2));
       b.coins -= transfer;
       a.coins += transfer;
     } else if (outcomeA === 'lose') {
-      transfer = Math.floor(a.coins / 2);
+      transfer = Math.min(MAX_STAKE, Math.floor(a.coins / 2));
       a.coins -= transfer;
       b.coins += transfer;
     }
@@ -734,12 +738,6 @@ export class LiveGameRoom extends DurableObject {
   private scheduleSpeedRound(at: number) {
     if (this.speedTimer) clearTimeout(this.speedTimer);
     this.speedTimer = null;
-    if (this.yamatoTimer) clearTimeout(this.yamatoTimer);
-    this.yamatoTimer = null;
-    if (this.yamatoRound) clearTimeout(this.yamatoRound.timer);
-    this.yamatoRound = null;
-    for (const t of this.pieceTimers.values()) clearTimeout(t);
-    this.pieceTimers.clear();
     if (!this.config?.speed || this.status !== 'running') return;
     // 終わる直前には始めない
     if (at + SPEED_ANSWER_MS + 5000 > this.endsAt) return;
@@ -756,7 +754,10 @@ export class LiveGameRoom extends DurableObject {
     const eligible = [...this.players.values()].filter(
       (p) => p.name && online.has(p.userId) && !p.duelId && !p.jankenCard && !p.chestPending && !p.speedId
     );
-    if (eligible.length < 2) return;
+    if (eligible.length < 2) {
+      this.addFeed('⚡ Speed round skipped — fewer than 2 students were free.');
+      return;
+    }
 
     // 奇数なら、お休みの回数がいちばん少ない人を 1 人お休みにする
     let bye: Player | null = null;
@@ -866,7 +867,7 @@ export class LiveGameRoom extends DurableObject {
     if (winnerId) {
       const winner = winnerId === a.userId ? a : b;
       const loser = winner === a ? b : a;
-      transfer = Math.floor(loser.coins / SPEED_STAKE_DIVISOR);
+      transfer = Math.min(MAX_STAKE, Math.floor(loser.coins / SPEED_STAKE_DIVISOR));
       loser.coins -= transfer;
       winner.coins += transfer;
       this.addFeed(`⚡ ${winner.name} beat ${loser.name} to the answer${transfer ? ` (+${transfer} coins)` : ''}!`);
@@ -1215,8 +1216,15 @@ export class LiveGameRoom extends DurableObject {
     if (!this.config || this.status !== 'running' || this.finishing) return;
     this.finishing = true;
     this.status = 'ended';
+    // 予約してある早押しタイム・ヤマトの問題・ピースの時間切れを止める
     if (this.speedTimer) clearTimeout(this.speedTimer);
     this.speedTimer = null;
+    if (this.yamatoTimer) clearTimeout(this.yamatoTimer);
+    this.yamatoTimer = null;
+    if (this.yamatoRound) clearTimeout(this.yamatoRound.timer);
+    this.yamatoRound = null;
+    for (const t of this.pieceTimers.values()) clearTimeout(t);
+    this.pieceTimers.clear();
     await this.ctx.storage.put('status', 'ended');
     await this.ctx.storage.deleteAlarm();
 
