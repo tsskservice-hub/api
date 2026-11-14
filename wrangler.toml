@@ -6,6 +6,10 @@ routes = [
   { pattern = "api.jptutoraiyamato.com", custom_domain = true }
 ]
 
+# 毎日 17:00 UTC（メルボルンの午前 3〜4 時）に、保存期間が過ぎた手書きの写真を消す（src/services/handwriting-cleanup.ts）
+[triggers]
+crons = ["0 17 * * *"]
+
 [vars]
 VERTEX_AI_PROJECT_ID = "my-vertex-ai-production"
 VERTEX_AI_REGION = "us-central1"

@@ -11,6 +11,7 @@ import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
+import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -134,4 +135,15 @@ app.onError((err, c) => {
   return c.json({ error: err.message || 'Internal Server Error' }, 500);
 });
 
-export default app;
+// HTTP は Hono、毎日の定期処理（wrangler.toml の [triggers] crons）は scheduled で受ける
+export default {
+  fetch: app.fetch,
+  // 保存期間が過ぎた手書きの写真を消す（プライバシーポリシー 5 章・FAQ の約束）
+  async scheduled(_event: unknown, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+    ctx.waitUntil(
+      deleteExpiredHandwritingImages(env).catch((err) => {
+        console.error('❌ [scheduled] handwriting cleanup failed:', err?.message || String(err));
+      })
+    );
+  },
+};
