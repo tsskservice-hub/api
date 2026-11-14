@@ -276,7 +276,7 @@ const CHEST_ITEMS: (ChestItem & { weight: number; apply: (coins: number) => numb
     name: 'Koban',
     nameJa: '小判',
     description: 'A gold coin! +1 coin.',
-    weight: 30,
+    weight: 26,
     apply: (c) => c + 1,
   },
   {
@@ -284,7 +284,7 @@ const CHEST_ITEMS: (ChestItem & { weight: number; apply: (coins: number) => numb
     name: 'Oni',
     nameJa: '鬼',
     description: 'Oh no! An oni stole your gold! −10 coins.',
-    weight: 4,
+    weight: 8,
     apply: (c) => Math.max(0, c - 10),
   },
   {

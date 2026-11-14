@@ -68,6 +68,8 @@ export type RoomConfig = {
   className: string;
   teacherId: string;
   questionSet: QuestionSet;
+  /** 先生が選んだ文字だけで出題する（なければ全部） */
+  characters?: string[];
   durationSec: number;
   nameMode: 'free' | 'preset';
   /** じゃんけん勝負のカードを宝箱に入れるか */
@@ -562,7 +564,7 @@ export class LiveGameRoom extends DurableObject {
           return this.send(ws, { t: 'jankenTargets', targets: this.jankenTargets(player), failed: true, reason: 'YAMATO' });
         }
         const target = [...this.players.values()].find((p) => p.pid === String(msg.pid ?? ''));
-        if (!target || !this.canBeChallenged(player, target)) {
+        if (!target || !this.jankenTargets(player).some((t) => t.pid === target.pid)) {
           return this.send(ws, { t: 'jankenTargets', targets: this.jankenTargets(player), failed: true });
         }
         this.startDuel(player, target);
@@ -612,7 +614,6 @@ export class LiveGameRoom extends DurableObject {
 
   private canBeChallenged(challenger: Player, target: Player) {
     if (target.userId === challenger.userId || !target.name) return false;
-    if (target.userId === challenger.lastTarget) return false;
     if (target.duelId || target.jankenCard || target.chestPending || target.speedId) return false;
     if (target.protectedUntil > Date.now()) return false;
     return this.connectedUserIds().has(target.userId);
@@ -620,8 +621,11 @@ export class LiveGameRoom extends DurableObject {
 
   /** 挑める相手の一覧（他の生徒には userId ではなく pid を送る） */
   private jankenTargets(player: Player) {
-    return [...this.players.values()]
-      .filter((p) => this.canBeChallenged(player, p))
+    let free = [...this.players.values()].filter((p) => this.canBeChallenged(player, p));
+    // 同じ人に続けては挑めない。ただし、ほかに挑める人がいないときは挑める
+    // （2 人だけのクラスなどで、ずっと誰にも挑めなくなるのを防ぐ）
+    if (free.some((p) => p.userId !== player.lastTarget)) free = free.filter((p) => p.userId !== player.lastTarget);
+    return free
       .sort((a, b) => b.coins - a.coins)
       .map((p) => ({ pid: p.pid, name: p.name, coins: p.coins }));
   }
@@ -1329,6 +1333,7 @@ export class LiveGameRoom extends DurableObject {
       config: {
         className: config.className,
         questionSet: config.questionSet,
+        characterCount: config.characters?.length ?? null,
         durationSec: config.durationSec,
         nameMode: config.nameMode,
         janken: config.janken,
@@ -1438,7 +1443,9 @@ export class LiveGameRoom extends DurableObject {
   private async ensureContent() {
     if (this.pool.length || !this.config) return;
     try {
-      this.pool = await loadContent(this.admin, this.config.questionSet);
+      const all = await loadContent(this.admin, this.config.questionSet);
+      const chosen = this.config.characters?.length ? new Set(this.config.characters) : null;
+      this.pool = chosen ? all.filter((i) => chosen.has(i.character)) : all;
     } catch (err: any) {
       console.error('❌ [live-game] content load failed:', err?.message || String(err));
     }

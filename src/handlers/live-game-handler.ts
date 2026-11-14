@@ -13,7 +13,7 @@ import { getSupabaseAdmin } from '../services/supabase-admin';
 import { getAllowedOrigin } from '../services/cors';
 import type { RoomConfig, JigsawPieceInput } from '../live-game/room';
 import { jigsawImageUrl } from './jigsaw-image-handler';
-import type { QuestionSet } from '../live-game/content';
+import { loadContent, type QuestionSet } from '../live-game/content';
 
 const QUESTION_SETS: QuestionSet[] = ['hiragana', 'katakana', 'kanji'];
 /** これより古い「開始前」の部屋は、もう使われていないとみなす */
@@ -57,6 +57,16 @@ export async function handleLiveGameCreate(c: Context) {
   }
   const mode: 'coins' | 'jigsaw' = body?.mode === 'jigsaw' ? 'jigsaw' : 'coins';
 
+  // 先生が選んだ文字（なければ全部の文字で出題）。実際にある文字かどうかは下で kl_character と照らす
+  let characters: string[] | undefined;
+  if (body?.characters !== undefined && body?.characters !== null) {
+    const raw = body.characters;
+    if (!Array.isArray(raw) || raw.length > 1000 || raw.some((v: unknown) => typeof v !== 'string' || !v || v.length > 8)) {
+      return c.json({ error: 'BAD_CHARACTERS' }, 400);
+    }
+    characters = [...new Set(raw as string[])];
+  }
+
   // みんなでジグソー：先生のブラウザが切り分けたピースを受け取る（どこに入るかはサーバーだけが持つ）
   let pieces: JigsawPieceInput[] = [];
   let cols = 0;
@@ -92,6 +102,23 @@ export async function handleLiveGameCreate(c: Context) {
     .eq('id', classId)
     .maybeSingle();
   if (!cls || cls.teacher_id !== userId) return c.json({ error: 'NOT_YOUR_CLASS' }, 403);
+
+  // 選んだ文字のうち、実際に出題できるものだけを残す。4 つの選択肢を作るので 4 文字以上が必要
+  if (characters) {
+    let known: Set<string>;
+    try {
+      known = new Set((await loadContent(admin, questionSet)).map((i) => i.character));
+    } catch (err: any) {
+      console.error('❌ [live-game] content load failed:', err?.message || String(err));
+      return c.json({ error: 'SERVER_ERROR' }, 500);
+    }
+    characters = characters.filter((ch) => known.has(ch));
+    if (characters.length < 4) {
+      return c.json({ error: 'NOT_ENOUGH_CHARACTERS', message: 'Choose at least 4 characters.' }, 400);
+    }
+    // 全部選んだときは「全部」と同じ
+    if (characters.length === known.size) characters = undefined;
+  }
 
   // ジグソーの写真は、サイトの写真集か、自分がアップロードしたものだけ
   let jigsaw: RoomConfig['jigsaw'] = null;
@@ -148,6 +175,7 @@ export async function handleLiveGameCreate(c: Context) {
   }
 
   const config: RoomConfig = {
+    characters,
     gameId: game.id,
     classId,
     className: cls.name,
