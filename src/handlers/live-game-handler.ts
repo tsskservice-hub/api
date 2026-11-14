@@ -11,12 +11,18 @@
 import type { Context } from 'hono';
 import { getSupabaseAdmin } from '../services/supabase-admin';
 import { getAllowedOrigin } from '../services/cors';
-import type { RoomConfig } from '../live-game/room';
+import type { RoomConfig, JigsawPieceInput } from '../live-game/room';
+import { jigsawImageUrl } from './jigsaw-image-handler';
 import type { QuestionSet } from '../live-game/content';
 
 const QUESTION_SETS: QuestionSet[] = ['hiragana', 'katakana', 'kanji'];
 /** これより古い「開始前」の部屋は、もう使われていないとみなす */
 const LOBBY_STALE_MS = 3 * 60 * 60_000;
+/** ジグソーのピースの数と、たて・よこの数（横長の写真。縦長なら入れ替える） */
+const JIGSAW_GRIDS: Record<number, [number, number]> = { 24: [6, 4], 48: [8, 6], 80: [10, 8] };
+/** ピース 1 つの画像（data URL）の大きさの上限 */
+const PIECE_MAX_CHARS = 600_000;
+const PIECE_DATA_RE = /^data:image\/(png|webp);base64,[A-Za-z0-9+/=]+$/;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 function roomStub(env: any, gameId: string) {
@@ -49,6 +55,33 @@ export async function handleLiveGameCreate(c: Context) {
   if (!Number.isInteger(durationMin) || durationMin < 1 || durationMin > 15) {
     return c.json({ error: 'BAD_DURATION', message: 'Time must be 1–15 minutes.' }, 400);
   }
+  const mode: 'coins' | 'jigsaw' = body?.mode === 'jigsaw' ? 'jigsaw' : 'coins';
+
+  // みんなでジグソー：先生のブラウザが切り分けたピースを受け取る（どこに入るかはサーバーだけが持つ）
+  let pieces: JigsawPieceInput[] = [];
+  let cols = 0;
+  let rows = 0;
+  let imageId = '';
+  if (mode === 'jigsaw') {
+    imageId = String(body?.imageId ?? '');
+    const pieceCount = Number(body?.pieceCount);
+    cols = Number(body?.cols);
+    rows = Number(body?.rows);
+    const grid = JIGSAW_GRIDS[pieceCount];
+    const gridOk = grid && ((cols === grid[0] && rows === grid[1]) || (cols === grid[1] && rows === grid[0]));
+    if (!UUID_RE.test(imageId) || !gridOk || !Array.isArray(body?.pieces) || body.pieces.length !== pieceCount) {
+      return c.json({ error: 'BAD_JIGSAW' }, 400);
+    }
+    const seen = new Set<number>();
+    for (const p of body.pieces) {
+      const slot = Number(p?.slot);
+      const data = String(p?.data ?? '');
+      if (!Number.isInteger(slot) || slot < 0 || slot >= pieceCount || seen.has(slot)) return c.json({ error: 'BAD_JIGSAW' }, 400);
+      if (data.length > PIECE_MAX_CHARS || !PIECE_DATA_RE.test(data)) return c.json({ error: 'BAD_PIECE' }, 400);
+      seen.add(slot);
+      pieces.push({ slot, data });
+    }
+  }
 
   // 承認済みの先生で、そのクラスの担任か
   const { data: profile } = await admin.from('profiles').select('is_teacher').eq('id', userId).maybeSingle();
@@ -59,6 +92,26 @@ export async function handleLiveGameCreate(c: Context) {
     .eq('id', classId)
     .maybeSingle();
   if (!cls || cls.teacher_id !== userId) return c.json({ error: 'NOT_YOUR_CLASS' }, 403);
+
+  // ジグソーの写真は、サイトの写真集か、自分がアップロードしたものだけ
+  let jigsaw: RoomConfig['jigsaw'] = null;
+  if (mode === 'jigsaw') {
+    const { data: image } = await admin
+      .from('edu_jigsaw_images')
+      .select('id, teacher_id, title, credit, storage_path, width, height')
+      .eq('id', imageId)
+      .maybeSingle();
+    if (!image || (image.teacher_id && image.teacher_id !== userId)) return c.json({ error: 'IMAGE_NOT_FOUND' }, 404);
+    jigsaw = {
+      imageUrl: jigsawImageUrl(c.env, image.storage_path),
+      width: image.width,
+      height: image.height,
+      cols,
+      rows,
+      title: image.title,
+      credit: image.credit ?? null,
+    };
+  }
 
   // 同じクラスの古い部屋は閉じる（1 クラスに部屋は 1 つ）
   const { data: active } = await admin
@@ -83,6 +136,9 @@ export async function handleLiveGameCreate(c: Context) {
       question_set: questionSet,
       duration_sec: durationMin * 60,
       name_mode: nameMode,
+      mode,
+      jigsaw_image_id: mode === 'jigsaw' ? imageId : null,
+      piece_count: mode === 'jigsaw' ? pieces.length : null,
     })
     .select('id')
     .single();
@@ -99,8 +155,14 @@ export async function handleLiveGameCreate(c: Context) {
     questionSet,
     durationSec: durationMin * 60,
     nameMode,
+    mode,
+    // ジグソーは協力して遊ぶので、対戦の仕組み（じゃんけん・早押し・ヤマトの問題）は使わない
+    janken: mode === 'coins' && body?.janken !== false,
+    speed: mode === 'coins' && body?.speed !== false,
+    yamato: mode === 'coins' && body?.yamato !== false,
+    jigsaw,
   };
-  const result = await roomStub(c.env, game.id).init(config);
+  const result = await roomStub(c.env, game.id).init(config, pieces);
   if (!result?.ok) {
     await admin.from('edu_live_games').update({ status: 'cancelled' }).eq('id', game.id);
     return c.json({ error: result?.error || 'CREATE_FAILED', message: 'Could not load the questions for this game.' }, 500);

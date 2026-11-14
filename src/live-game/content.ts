@@ -180,6 +180,60 @@ export function makeQuestion(pool: ContentItem[], set: QuestionSet, recent: stri
   };
 }
 
+// ---------- 文化クイズ（ヤマトの問題で、言葉の問題と交互に出す） ----------
+
+/**
+ * もとは毎日クイズ（kl_app の DAILY_QUIZZES）。
+ * 日本語の知識がなくても答えられるように、topic が CULTURE_TOPICS に当てはまる問題だけを使う
+ * （Grammar・Kanji などは使わない）。英語で出すので、日本語がまだ読めない生徒でも答えられる。
+ * 当てはまる問題が無ければ、ヤマトの問題は言葉の問題だけになる。
+ */
+export type CultureQuizItem = { question: string; options: string[]; answerIndex: number };
+
+/** 文化クイズとして使う topic（小文字で、この言葉を含むもの） */
+const CULTURE_TOPICS = ['culture'];
+
+export async function loadCultureQuiz(admin: any): Promise<CultureQuizItem[]> {
+  const { data, error } = await admin.from('kl_app').select('data').eq('key', 'DAILY_QUIZZES').maybeSingle();
+  if (error) throw new Error(`DAILY_QUIZZES: ${error.message}`);
+  const raw = data?.data;
+  // 毎日クイズのページと同じ読み方（配列そのもの、または { quizzes } / { DAILY_QUIZZES }）
+  const list: any[] = Array.isArray(raw) ? raw : raw?.quizzes || raw?.DAILY_QUIZZES || [];
+  return list
+    .filter((q) => {
+      const topic = typeof q?.topic === 'string' ? q.topic.toLowerCase() : '';
+      return CULTURE_TOPICS.some((t) => topic.includes(t));
+    })
+    .map((q) => ({ question: q.question, options: q.options, answerIndex: q.answer }))
+    .filter(
+      (q) =>
+        typeof q.question === 'string' &&
+        q.question.trim() &&
+        Array.isArray(q.options) &&
+        q.options.length >= 2 &&
+        q.options.every((o: unknown) => typeof o === 'string' && o.trim()) &&
+        new Set(q.options.map((o: string) => o.trim())).size === q.options.length &&
+        Number.isInteger(q.answerIndex) &&
+        q.answerIndex >= 0 &&
+        q.answerIndex < q.options.length
+    );
+}
+
+export function makeCultureQuestion(item: CultureQuizItem): Question {
+  const correct = item.options[item.answerIndex];
+  const options = shuffle(item.options.map((o) => o.trim()));
+  return {
+    qid: crypto.randomUUID(),
+    itemKey: `culture: ${item.question.slice(0, 40)}`,
+    label: 'Culture quiz',
+    prompt: item.question.trim(),
+    promptIsJapanese: false,
+    options,
+    optionsAreJapanese: false,
+    correctIndex: options.indexOf(correct.trim()),
+  };
+}
+
 // ---------- 宝箱 ----------
 
 export type ChestItem = {
@@ -222,25 +276,50 @@ const CHEST_ITEMS: (ChestItem & { weight: number; apply: (coins: number) => numb
     weight: 30,
     apply: (c) => c + 3,
   },
+  {
+    // じゃんけん勝負のカード。金貨はここでは変わらず、相手を選んで勝負する（room.ts）
+    id: 'janken',
+    name: 'Janken Battle',
+    nameJa: 'じゃんけん勝負',
+    description: 'Challenge someone to janken! The loser gives half of their coins to the winner.',
+    weight: 25,
+    apply: (c) => c,
+  },
 ];
 
 /** 何問正解するごとに宝箱が出るか */
 export const CORRECT_PER_CHEST = 3;
 
-/** 宝箱の中身はサーバーが開けた瞬間に決める（先に端末へ送らない） */
-export function openChest(coins: number): { item: ChestItem; coins: number } {
-  const total = CHEST_ITEMS.reduce((s, i) => s + i.weight, 0);
+/**
+ * 宝箱の中身はサーバーが開けた瞬間に決める（先に端末へ送らない）
+ * janken: じゃんけん勝負のカードを入れるか（先生が「じゃんけんなし」にしたら入れない）
+ */
+export function openChest(coins: number, options: { janken: boolean }): { item: ChestItem; coins: number } {
+  const items = CHEST_ITEMS.filter((i) => options.janken || i.id !== 'janken');
+  const total = items.reduce((s, i) => s + i.weight, 0);
   let r = randomInt(total);
-  for (const i of CHEST_ITEMS) {
+  for (const i of items) {
     if (r < i.weight) {
       const { weight: _w, apply, ...item } = i;
       return { item, coins: apply(coins) };
     }
     r -= i.weight;
   }
-  const last = CHEST_ITEMS[CHEST_ITEMS.length - 1];
+  const last = items[items.length - 1];
   const { weight: _w, apply, ...item } = last;
   return { item, coins: apply(coins) };
+}
+
+// ---------- じゃんけん ----------
+
+export type Hand = 'rock' | 'scissors' | 'paper';
+export const HANDS: Hand[] = ['rock', 'scissors', 'paper'];
+
+/** a から見た勝ち負け */
+export function judgeJanken(a: Hand, b: Hand): 'win' | 'lose' | 'draw' {
+  if (a === b) return 'draw';
+  if ((a === 'rock' && b === 'scissors') || (a === 'scissors' && b === 'paper') || (a === 'paper' && b === 'rock')) return 'win';
+  return 'lose';
 }
 
 export { randomInt, shuffle };
