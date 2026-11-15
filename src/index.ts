@@ -12,7 +12,7 @@ import { requireAuth } from './services/auth';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
-import { handleJigsawImageList, handleJigsawImageUpload } from './handlers/jigsaw-image-handler';
+import { handleJigsawImageDelete, handleJigsawImageList, handleJigsawImageUpload } from './handlers/jigsaw-image-handler';
 import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLiveGameSocket } from './handlers/live-game-handler';
 
 // クラスのライブゲームの部屋（Durable Object）。wrangler.toml の durable_objects から参照される
@@ -55,7 +55,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete']) {
   app.use(path, requireAuth);
 }
 
@@ -138,6 +138,7 @@ app.get('/api/live-game/mine', handleLiveGameMine);
 // 🧩 みんなでジグソーの写真（一覧・アップロード）
 app.get('/api/live-game/jigsaw/images', handleJigsawImageList);
 app.post('/api/live-game/jigsaw/images', handleJigsawImageUpload);
+app.post('/api/live-game/jigsaw/images/delete', handleJigsawImageDelete);
 
 // 404 ハンドラー
 app.notFound((c) => c.json({ error: 'Route Not Found' }, 404));

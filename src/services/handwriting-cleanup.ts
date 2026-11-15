@@ -10,6 +10,8 @@
 import { getSupabaseAdmin } from './supabase-admin';
 
 const IMAGE_BUCKET = 'writing-submissions';
+/** 削除待ちリストの bucket 列（31 の SQL で追加。まだないときや空のときは手書きの写真） */
+const queueBucket = (r: { bucket?: string | null }) => r.bucket || IMAGE_BUCKET;
 const BATCH_SIZE = 100;
 const MAX_BATCHES = 20; // 1 回の実行で最大 2,000 件。残りは次の日に消す
 const LOG_PREFIX = '[handwriting-cleanup]';
@@ -72,7 +74,7 @@ async function deleteQueuedHandwritingImages(admin: ReturnType<typeof getSupabas
   for (let batch = 0; batch < MAX_BATCHES; batch++) {
     const { data: rows, error } = await admin
       .from('edu_image_deletion_queue')
-      .select('path')
+      .select('*')
       .order('queued_at', { ascending: true })
       .limit(BATCH_SIZE);
 
@@ -83,12 +85,22 @@ async function deleteQueuedHandwritingImages(admin: ReturnType<typeof getSupabas
     }
     if (!rows || rows.length === 0) break;
 
+    // バケットごとに消す（手書きの写真 writing-submissions、ジグソーの写真 live-jigsaw）
     const paths = rows.map((r: { path: string }) => r.path);
-    const { error: removeError } = await admin.storage.from(IMAGE_BUCKET).remove(paths);
-    if (removeError) {
-      console.error(`${LOG_PREFIX} could not delete queued images:`, removeError.message);
-      break;
+    const byBucket = new Map<string, string[]>();
+    for (const r of rows as { path: string; bucket?: string | null }[]) {
+      const b = queueBucket(r);
+      byBucket.set(b, [...(byBucket.get(b) ?? []), r.path]);
     }
+    let removeFailed = false;
+    for (const [bucket, list] of byBucket) {
+      const { error: removeError } = await admin.storage.from(bucket).remove(list);
+      if (removeError) {
+        console.error(`${LOG_PREFIX} could not delete queued images in ${bucket}:`, removeError.message);
+        removeFailed = true;
+      }
+    }
+    if (removeFailed) break;
 
     const { error: dequeueError } = await admin.from('edu_image_deletion_queue').delete().in('path', paths);
     if (dequeueError) {
