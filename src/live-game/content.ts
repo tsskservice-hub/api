@@ -184,14 +184,12 @@ export function makeQuestion(pool: ContentItem[], set: QuestionSet, recent: stri
 
 /**
  * もとは毎日クイズ（kl_app の DAILY_QUIZZES）。
- * 日本語の知識がなくても答えられるように、topic が CULTURE_TOPICS に当てはまる問題だけを使う
- * （Grammar・Kanji などは使わない）。英語で出すので、日本語がまだ読めない生徒でも答えられる。
- * 当てはまる問題が無ければ、ヤマトの問題は言葉の問題だけになる。
+ * 毎日クイズはどれも日本文化の問題（トピックごとに数問ずつ）なので、すべての問題を使う。
+ * 英語で出すので、日本語がまだ読めない生徒でも答えられる。
+ * 同じクラスでは、全部出し終わるまで同じ問題は出さない（room.ts の pickCultureItem）。
+ * 問題が無ければ、ヤマトの問題は言葉の問題だけになる。
  */
 export type CultureQuizItem = { question: string; options: string[]; answerIndex: number };
-
-/** 文化クイズとして使う topic（小文字で、この言葉を含むもの） */
-const CULTURE_TOPICS = ['culture'];
 
 export async function loadCultureQuiz(admin: any): Promise<CultureQuizItem[]> {
   const { data, error } = await admin.from('kl_app').select('data').eq('key', 'DAILY_QUIZZES').maybeSingle();
@@ -200,10 +198,6 @@ export async function loadCultureQuiz(admin: any): Promise<CultureQuizItem[]> {
   // 毎日クイズのページと同じ読み方（配列そのもの、または { quizzes } / { DAILY_QUIZZES }）
   const list: any[] = Array.isArray(raw) ? raw : raw?.quizzes || raw?.DAILY_QUIZZES || [];
   return list
-    .filter((q) => {
-      const topic = typeof q?.topic === 'string' ? q.topic.toLowerCase() : '';
-      return CULTURE_TOPICS.some((t) => topic.includes(t));
-    })
     .map((q) => ({ question: q.question, options: q.options, answerIndex: q.answer }))
     .filter(
       (q) =>

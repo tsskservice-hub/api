@@ -1029,7 +1029,7 @@ export class LiveGameRoom extends DurableObject {
     this.yamatoCount += 1;
     const useCulture = this.culture.length > 0 && this.yamatoCount % 2 === 0;
     const question = useCulture
-      ? makeCultureQuestion(this.culture[randomInt(this.culture.length)])
+      ? makeCultureQuestion(await this.pickCultureItem(this.culture))
       : makeQuestion(this.pool, this.config.questionSet, []);
     if (!question) return;
 
@@ -1439,6 +1439,51 @@ export class LiveGameRoom extends DurableObject {
   }
 
   // ---------- そのほか ----------
+
+  /**
+   * 文化クイズを 1 問選ぶ。このクラスでまだ出していない問題から選び、
+   * 全部出し終わったら、いちばん前に出した問題からもう一度使う。
+   * 出した記録は、クラスごとの記録係（同じクラスの DO を「culture-history:クラスID」で呼ぶ）が持つ。
+   */
+  private async pickCultureItem(items: CultureQuizItem[]): Promise<CultureQuizItem> {
+    const keyOf = (i: CultureQuizItem) => i.question.trim();
+    let history: string[] = [];
+    let keeper: any = null;
+    try {
+      const ns = (this.env as any).LIVE_GAME as DurableObjectNamespace;
+      keeper = ns.get(ns.idFromName(`culture-history:${this.config!.classId}`));
+      history = await keeper.cultureHistory();
+    } catch (err: any) {
+      console.error('❌ [live-game] culture history failed:', err?.message || String(err));
+    }
+    const used = new Set(history);
+    const fresh = items.filter((i) => !used.has(keyOf(i)));
+    let item: CultureQuizItem;
+    if (fresh.length) {
+      item = fresh[randomInt(fresh.length)];
+    } else {
+      // 全部出したあと：いちばん昔に出した問題（記録の最後）を選ぶ
+      const order = new Map(history.map((k, n) => [k, n]));
+      item = items.reduce((a, b) => ((order.get(keyOf(b)) ?? 0) > (order.get(keyOf(a)) ?? 0) ? b : a));
+    }
+    try {
+      if (keeper) await keeper.rememberCulture(keyOf(item));
+    } catch (err: any) {
+      console.error('❌ [live-game] culture history save failed:', err?.message || String(err));
+    }
+    return item;
+  }
+
+  /** （記録係として呼ばれたとき）このクラスで出した文化クイズ。新しい順 */
+  async cultureHistory(): Promise<string[]> {
+    return ((await this.ctx.storage.get('cultureHistory')) as string[] | undefined) ?? [];
+  }
+
+  /** （記録係として呼ばれたとき）出した文化クイズを記録する */
+  async rememberCulture(key: string): Promise<void> {
+    const prev = await this.cultureHistory();
+    await this.ctx.storage.put('cultureHistory', [key, ...prev.filter((k) => k !== key)].slice(0, 500));
+  }
 
   private async ensureContent() {
     if (this.pool.length || !this.config) return;
