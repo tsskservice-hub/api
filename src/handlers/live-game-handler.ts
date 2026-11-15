@@ -188,6 +188,8 @@ export async function handleLiveGameCreate(c: Context) {
     janken: mode === 'coins' && body?.janken !== false,
     speed: mode === 'coins' && body?.speed !== false,
     yamato: mode === 'coins' && body?.yamato !== false,
+    // BGM は金貨バトルだけ。曲 ID の形だけ確かめる（どの曲があるかはポータルが知っている）
+    bgm: mode === 'coins' && typeof body?.bgm === 'string' && /^[a-z0-9-]{1,40}$/.test(body.bgm) ? body.bgm : null,
     jigsaw,
   };
   const result = await roomStub(c.env, game.id).init(config, pieces);

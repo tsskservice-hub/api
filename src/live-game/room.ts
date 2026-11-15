@@ -78,6 +78,8 @@ export type RoomConfig = {
   speed: boolean;
   /** ヤマトの問題（クラス全員）を出すか */
   yamato: boolean;
+  /** 先生の画面で流す BGM の曲 ID（なしは null）。曲のファイルはポータル側 */
+  bgm?: string | null;
   /** 遊び方：金貨バトル（coins）／みんなでジグソー（jigsaw）。古い部屋には無いので coins とみなす */
   mode?: 'coins' | 'jigsaw';
   jigsaw?: {
@@ -1339,6 +1341,7 @@ export class LiveGameRoom extends DurableObject {
         janken: config.janken,
         speed: config.speed,
         yamato: config.yamato,
+        bgm: config.bgm ?? null,
         mode: config.mode ?? 'coins',
       },
       jigsaw: this.jigsawBoard(),
