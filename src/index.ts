@@ -9,6 +9,7 @@ import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler'
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
+import { handleKanjiLookup } from './handlers/kanji-lookup-handler';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
@@ -123,6 +124,9 @@ app.post('/api/test-tts', handleChatOrTtsRequest);
 // 🎙️ 音声認識（STT）ルーティング (stt-service.ts へ委譲)
 app.post('/api/test-stt', handleSttRequest);
 app.post('/api/stt', handleSttRequest);
+
+// 🔍 漢字AI検索（ログインしていなくても使える。回数と料金はハンドラーと SQL 37 が決める）
+app.post('/api/kanji-lookup', handleKanjiLookup);
 
 // 🎙️ リアルタイム音声セッション（OpenAI Realtime API）発行用エンドポイント
 app.post('/api/realtime/session', handleRealtimeSessionRequest);

@@ -13,6 +13,7 @@ export const SERVER_CREDIT_COSTS = {
   mockSection1: 15,  // Voice AI: Mock Section 1 (approx. 7 min): 15 credits / mock
   mockSection2: 15,  // Voice AI: Mock Section 2 (approx. 8 min): 15 credits / mock
   mockFull: 25,      // Voice AI: Full Mock (approx. 15 min): 25 credits / mock
+  kanjiLookup: 1,    // 漢字AI検索: 1 日 20 回まで無料、それを超えたら 1 回 1 クレジット（handlers/kanji-lookup-handler.ts）
 } as const;
 
 export type FeatureKey = keyof typeof SERVER_CREDIT_COSTS;
