@@ -78,7 +78,7 @@ function unwrap(data: any, prop: string) {
 const PORTAL_MODULE_SECTIONS: Array<{ key: string; title: string }> = [
   { key: 'CONTENT_VCE_SPEAKING', title: 'VCE Speaking' },
   { key: 'CONTENT_VCE_WRITING', title: 'VCE Writing' },
-  { key: 'CONTENT_REFERENCE', title: 'VCE Writing References & Guides' },
+  { key: 'CONTENT_REFERENCE', title: 'VCE References & Guides' },
   { key: 'CONTENT_JUNIOR', title: 'Years 7–10 Japanese' },
   { key: 'CONTENT_GENERAL', title: 'Global & General Japanese Learners' },
 ];

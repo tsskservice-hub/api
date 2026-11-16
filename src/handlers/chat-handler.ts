@@ -55,6 +55,19 @@ async function transcribeAudioToText(audioBase64: string, openaiApiKey: string):
   return data.text || '';
 }
 
+/**
+ * 画面から来た文字列をプロンプトに入れられる形にする（文字列以外は捨て、HTML タグを消し、長さを切る）
+ */
+function toPromptField(value: unknown, maxLength: number): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const cleaned = value
+    .replace(/<rt>.*?<\/rt>/g, "")
+    .replace(/<[^>]*>/g, "")
+    .trim()
+    .slice(0, maxLength);
+  return cleaned || undefined;
+}
+
 export async function handleChatOrTtsRequest(c: Context) {
   // 💳 先払いしたクレジット（失敗時に返すために try の外で持つ）
   let reservation: CreditReservation | null = null;
@@ -161,6 +174,9 @@ export async function handleChatOrTtsRequest(c: Context) {
       faqList: syncedKnowledge?.faqList || [],
       currentTurn: history.length + 1,
       pace: body.learningPace || body.pace,
+      // 🎙️ 口頭試験ドリル: 今の質問と、生徒が登録した答え（AI が何の質問への答えかを分かるように）
+      expectedQuestion: toPromptField(body.expectedQuestion, 300),
+      registeredAnswer: toPromptField(body.registeredAnswer, 1500),
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay || userMessage,
       exactCharacterCount: body.exactCharacterCount,

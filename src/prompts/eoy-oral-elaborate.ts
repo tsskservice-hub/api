@@ -4,6 +4,7 @@
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
 import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { buildOralTurnContext } from "./oral-turn-context";
 
 /**
  * 口頭試験用のペース別トーン調整
@@ -42,6 +43,10 @@ function getOralPaceInstruction(pace?: string): string {
 export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
   /** ペースや難易度の調整用（"accelerated", "normal", "steady" など） */
   pace?: string;
+  /** 今練習している質問（画面から。タグは除去済み） */
+  expectedQuestion?: string;
+  /** その質問に対して生徒が登録した答え（画面から。タグは除去済み） */
+  registeredAnswer?: string;
   timeZone?: string;
   cityName?: string;
   /** 必要に応じて getSyncedKnowledge に渡す環境変数など */
@@ -52,7 +57,7 @@ export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
  * EOY Oral Elaborate 固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromptOptions = {}): Promise<string> {
-  const { pace, env, ...baseOptions } = options;
+  const { pace, env, expectedQuestion, registeredAnswer, ...baseOptions } = options;
 
   // 💡 API側の同期済みナレッジ（syncedKnowledge）を非同期で取得
   const syncedKnowledge = await getSyncedKnowledge(env);
@@ -60,6 +65,9 @@ export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromp
 
   // ペースに応じた指示を取得
   const paceInstruction = getOralPaceInstruction(pace);
+
+  // 今の質問と登録した答え（あるときだけ）
+  const turnContext = buildOralTurnContext("elaborate", expectedQuestion, registeredAnswer);
 
   // EOY Oral Elaborate 固有の設定
   const EOY_ORAL_ELABORATE_SPECIFIC_CONTEXT = `
@@ -72,6 +80,7 @@ export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromp
     - Tone and Demeanor: Intellectual, encouraging, analytical, and highly supportive.
   </persona_tone>
   ${paceInstruction}
+  ${turnContext}
 </system_context>
   `.trim();
 

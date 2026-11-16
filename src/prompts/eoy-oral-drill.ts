@@ -4,6 +4,7 @@
  */
 import { YamatoApiCommon, YamatoApiCommonOptions } from "../YamatoApiCommon";
 import { getSyncedKnowledge } from "../services/api-sync-knowledge"; // 💡 API側の同期済みナレッジをインポート
+import { buildOralTurnContext } from "./oral-turn-context";
 
 /**
  * 口頭試験用のペース別トーン調整
@@ -42,6 +43,10 @@ function getOralPaceInstruction(pace?: string): string {
 export interface EoyOralDrillPromptOptions extends YamatoApiCommonOptions {
   /** ペースや難易度の調整用（"accelerated", "normal", "steady" など） */
   pace?: string;
+  /** 今ドリルで出している質問（画面から。タグは除去済み） */
+  expectedQuestion?: string;
+  /** その質問に対して生徒が登録した答え（画面から。タグは除去済み） */
+  registeredAnswer?: string;
   timeZone?: string;
   cityName?: string;
   env?: any; // 💡 追加: Cloudflare Workers の env
@@ -51,7 +56,7 @@ export interface EoyOralDrillPromptOptions extends YamatoApiCommonOptions {
  * EOY Oral Drill 固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildEoyOralDrillPrompt(options: EoyOralDrillPromptOptions = {}): Promise<string> {
-  const { pace, env, ...baseOptions } = options; // 💡 envを受け取る
+  const { pace, env, expectedQuestion, registeredAnswer, ...baseOptions } = options; // 💡 envを受け取る
 
   // 💡 API側の同期済みナレッジ（syncedKnowledge）を await と env を指定して取得
   const syncedKnowledge = await getSyncedKnowledge(env);
@@ -59,6 +64,9 @@ export async function buildEoyOralDrillPrompt(options: EoyOralDrillPromptOptions
 
   // ペースに応じた指示を取得
   const paceInstruction = getOralPaceInstruction(pace);
+
+  // 今の質問と登録した答え（あるときだけ）
+  const drillTurnContext = buildOralTurnContext("drill", expectedQuestion, registeredAnswer);
 
   // EOY Oral Drill 固有の設定
   const EOY_ORAL_DRILL_SPECIFIC_CONTEXT = `
@@ -71,6 +79,7 @@ export async function buildEoyOralDrillPrompt(options: EoyOralDrillPromptOptions
     - Tone and Demeanor: Energetic, encouraging, brisk, and highly interactive.
   </persona_tone>
   ${paceInstruction}
+  ${drillTurnContext}
 </system_context>
   `.trim();
 
