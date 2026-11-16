@@ -57,6 +57,8 @@ export async function handleSttRequest(c: Context) {
         "Authorization": "Bearer " + openaiApiKey,
       },
       body: whisperFormData,
+      // 40 秒で返事がなければやめる（画面が「文字にしています」のまま止まらないように）
+      signal: AbortSignal.timeout(40000),
     });
 
     if (!whisperRes.ok) {

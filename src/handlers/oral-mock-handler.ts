@@ -58,6 +58,8 @@ async function speak(env: any, text: string): Promise<string | null> {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' },
       body: JSON.stringify({ model: 'tts-1', input: text, voice: 'fable', speed: 1.0, response_format: 'mp3' }),
+      // 返事を速くするため、声が 8 秒で作れなければブラウザの読み上げで代わりに読む
+      signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) throw new Error(`TTS ${res.status}`);
     const buf = new Uint8Array(await res.arrayBuffer());
@@ -126,6 +128,16 @@ const FALLBACK_LINES: Record<MockStage, Record<MockTurnMode, string>> = {
   },
 };
 
+/**
+ * セクションを締めることば（プログラムで決める。AI にまかせると、質問をしてしまうことがあるため）
+ * ・これで模擬試験が終わる（退室のやりとりなし）→ 先生と練習したときのように「では、これで終わりましょう。…」
+ * ・まだ次のセクションか、退室のやりとりがある → 「ありがとうございました。これでセクション1を終わります。」
+ */
+function closingWords(stage: MockStage, body: any): string {
+  if (body?.endsExam === true) return 'では、これで終わりましょう。今日はありがとうございました。';
+  return `ありがとうございました。これで${stage === 'sec1' ? 'セクション1' : 'セクション2'}を終わります。`;
+}
+
 export async function handleOralMockTurn(c: Context) {
   const started = Date.now();
   const userId = c.get('userId') as string;
@@ -186,11 +198,15 @@ export async function handleOralMockTurn(c: Context) {
         ideas,
         isLastStage: Boolean(body?.isLastStage),
         supportDescription: session.support_description,
+        topic: clean(body?.topic, 60) || undefined,
+        switchTopic: body?.switchTopic === true,
       }),
       contents,
       temperature: 0.7,
       maxOutputTokens: 200,
       thinkingBudget: 0,
+      // 12 秒で返事がなければ、用意した言葉で試験を続ける（止まったままにしない）
+      timeoutMs: 12000,
     });
     // 名前やかぎかっこ、改行を取って、話すことばだけにする
     text = normalizeKiku(text)
@@ -202,7 +218,16 @@ export async function handleOralMockTurn(c: Context) {
   } catch (err: any) {
     console.error('❌ [oral-mock] examiner AI failed:', err?.message || String(err));
   }
-  if (!text || !/[぀-ヿ一-鿿]/.test(text)) {
+  if (mode === 'close') {
+    // 時間切れの締め: 質問はさせない。AI の短い反応（質問・あいさつの文は消す）＋ 決まった締めのことば
+    const reaction = text
+      .split(/(?<=[。！？!?])/)
+      .map((t) => t.trim())
+      .filter((t) => t && !/(か[。．]?|[？?])$/.test(t) && !/ありがとう|さようなら|終わ/.test(t))
+      .slice(0, 1)
+      .join('');
+    text = (/[぀-ヿ一-鿿]/.test(reaction) ? reaction : 'そうですか。') + closingWords(stage, body);
+  } else if (!text || !/[぀-ヿ一-鿿]/.test(text)) {
     // AI がうまく答えなかったときも、試験は止めない
     text = mode === 'reply' && ideas.length > 0 ? `そうですか。${ideas[Math.floor(Math.random() * ideas.length)]}` : FALLBACK_LINES[stage][mode];
   }

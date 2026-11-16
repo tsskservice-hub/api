@@ -18,9 +18,10 @@ const LEVEL: Record<MockDifficulty, string> = {
 };
 
 const STAGE: Record<MockStage, string> = {
-  sec1: `SECTION 1 — General Conversation (about 7 minutes). Talk about the student's personal world:
-family, friends, school, hobbies, part-time job, Japanese study, sports, travel, future plans, technology.
-Move naturally between a few of these areas. Ask one question at a time.`,
+  sec1: `SECTION 1 — General Conversation (about 7 minutes). Talk about the student's personal world.
+The exam plan covers several common topics (family, school, part-time job, Japan, future plans) one after another,
+so that the student talks about all of them in 7 minutes. The system tells you the CURRENT TOPIC each turn.
+Ask one question at a time.`,
   sec2: `SECTION 2 — Discussion of the student's Detailed Study (about 8 minutes).
 The student chose a sub-topic and studied texts about it (they may refer to support materials such as photos).
 First let the student state and briefly introduce their sub-topic. Then discuss it: details, reasons, examples,
@@ -39,26 +40,39 @@ export function buildExaminerPrompt(opts: {
   isLastStage: boolean;
   /** Section 2 で生徒が見せている写真の説明（AI が写真を見て書いたもの） */
   supportDescription?: string | null;
+  /** Section 1 でいま話すトピック（例: 家族 (family)） */
+  topic?: string;
+  /** Section 1 で、ここで話題を大きく変えるか */
+  switchTopic?: boolean;
 }): string {
-  const { stage, mode, difficulty, ideas, isLastStage, supportDescription } = opts;
+  const { stage, mode, difficulty, ideas, isLastStage, supportDescription, topic, switchTopic } = opts;
 
   let task: string;
   if (mode === 'open') {
     task =
       stage === 'sec1'
-        ? 'Start Section 1 now: say in one short sentence that the general conversation begins, then ask your first question.'
+        ? `Start Section 1 now: say in one short sentence that the general conversation begins, then ask your first question about the CURRENT TOPIC: ${topic || 'the student\'s family'}.`
         : 'Start Section 2 now: say in one short sentence that Section 2 (the detailed study discussion) begins, then ask the student what their sub-topic is.';
+  } else if (mode === 'reply' && stage === 'sec1' && switchTopic && topic) {
+    task = `Now CHANGE TO A NEW TOPIC: ${topic}. This is a big change of topic, like a real examiner moving on.
+- First, a very short reaction to the student's last answer (e.g. 「そうですか。」「ありがとうございます。」).
+- Then a clear transition, e.g. 「では、話題を変えましょう。」「では、ちがうトピックについて話しましょう。」「次は、${topic.split(' ')[0]}について聞きます。」
+- Then ONE simple opening question about the new topic (e.g. for 日本: 「日本に行ったことがありますか。」).
+- For this turn you may use up to 3 short sentences (about 80 Japanese characters).`;
   } else if (mode === 'close') {
-    task = isLastStage
-      ? "Time is up. Give a very short natural reaction to the student's last answer, then say this section is finished (e.g. 「ありがとうございました。これでセクション2を終わります。」). Do NOT ask another question."
-      : "Time is up. Give a very short natural reaction to the student's last answer, then say this section is finished. Do NOT ask another question.";
+    // 締めのことば（「ありがとうございました。これで〜終わります。」）はサーバーが後ろに付けるので、ここでは短い反応だけ
+    task = `Time is up for this section. Say ONLY one very short natural reaction to the student's last answer
+(e.g. 「そうですか。」「なるほど、よく分かりました。」「楽しそうですね。」).
+Do NOT ask any question. Do NOT say goodbye or thank you (the closing words are added after your reaction).`;
   } else {
     task = `Reply to the student's last answer like a real examiner:
 - First, a very short natural reaction (e.g. 「そうですか。」「いいですね。」「なるほど。」) — at most one short sentence.
 - Then ask ONE question. Usually a follow-up that uses a specific word or idea from the student's answer
   (reason, detail, example, feelings, comparison). After 2–3 questions on the same thing, move to a new area.
 - If the student's answer was very short or unclear, ask a simpler question about the same thing.
-- If the student said something off-topic or inappropriate, politely bring the conversation back to the exam.`;
+- If the student said something off-topic or inappropriate, politely bring the conversation back to the exam.${
+       stage === 'sec1' && topic ? `\n- CURRENT TOPIC: ${topic}. Keep your question on this topic (follow up on what the student said about it).` : ''
+     }`;
   }
 
   const photoText =
@@ -101,7 +115,7 @@ function paceModule(pace: string): string {
     return `<active_pace_module>accelerated</active_pace_module>
 - Profile & Tone: High achiever. Academic, rigorous, challenging, no fluff. Strictly English (except quoted Japanese).
 - Use exactly these headers, in this order:
-  🏆 [VCE-Aligned Estimation Band] (rigorous estimate, Band 1–5, with a one-line reason)
+  🏆 [VCE-Aligned Estimation Band] (write "Band N / 5", the scale line, and a one-line reason)
   🎯 [Section-by-Section Analysis] (one short paragraph per section that was taken)
   🔍 [Accuracy & Range Upgrades] (up to 6: the student's exact sentence → a more accurate / more sophisticated version, with a short reason)
   🧩 [Maintaining & Advancing the Conversation] (elaboration, linking ideas, taking initiative, repair strategies)
@@ -112,7 +126,7 @@ function paceModule(pace: string): string {
     return `<active_pace_module>steady</active_pace_module>
 - Profile & Tone: Student who finds Japanese hard. Warm, cheerful, very encouraging, heavy emojis (🌟, 💖, 😊, ✨, 💪, 🎉). Simple English, short sentences.
 - Use exactly these headers, in this order:
-  🟡 [VCE-Aligned Estimation Band] (gentle estimate, Band 1–5)
+  🟡 [VCE-Aligned Estimation Band] (write "Band N / 5" and the scale line, gently)
   🌟 [What You Did Well] (quote 2–3 of the student's own good sentences)
   🔧 [One-Point Corrections] (up to 3: the student's exact sentence → a corrected simple version)
   💬 [Make One Answer Longer] (take one short answer and show how to add one more simple sentence)
@@ -121,7 +135,7 @@ function paceModule(pace: string): string {
   return `<active_pace_module>normal</active_pace_module>
 - Profile & Tone: Mid-level student. Balanced, standard tutor. Clear English.
 - Use exactly these headers, in this order:
-  🟢 [VCE-Aligned Estimation Band] (estimate, Band 1–5, with a one-line reason)
+  🟢 [VCE-Aligned Estimation Band] (write "Band N / 5", the scale line, and a one-line reason)
   🗣️ [Communication & Interaction] (did they answer the question asked, length of answers, elaboration, fillers, asking for repetition)
   🔍 [Key Corrections] (up to 5: the student's exact sentence → a corrected version, with a short reason)
   📖 [Vocabulary & Grammar Range] (what they used well, and 2–3 expressions to add)
@@ -191,7 +205,11 @@ IMPORTANT:
 - Quote the student's real sentences from the transcript. Never invent things the student did not say.
 - The examiner's lines are from the AI examiner. Only evaluate the student.
 - If the student said very little, say so kindly and base the feedback on what there is.
-- The band is only an estimate for practice, not an official VCAA score. Say this in one short line at the end.
+- BAND: always write it as "Band N / 5" (never just "Band 3"). On the next line, explain the scale in one line:
+  "Scale: 5 = excellent, 4 = very good, 3 = good, 2 = developing, 1 = beginning."
+  Choose N by comparing the student's performance with the criteria above.
+- The band is only an estimate for practice on this site's 5-level scale, not an official VCAA score or mark.
+  Say this in one short line at the end.
 - Format: plain text. Each header on its own line exactly as written below. Use "・" for list items. No markdown (#, **).
 
 ${references}

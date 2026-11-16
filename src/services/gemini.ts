@@ -13,6 +13,8 @@ export interface GeminiCallOptions {
   thinkingBudget?: number;
   /** JSON で返してほしいとき */
   json?: boolean;
+  /** この時間（ミリ秒）で返事がなければやめる */
+  timeoutMs?: number;
 }
 
 export async function callGemini(env: any, options: GeminiCallOptions): Promise<string> {
@@ -47,6 +49,7 @@ export async function callGemini(env: any, options: GeminiCallOptions): Promise<
       })),
       generationConfig,
     }),
+    ...(options.timeoutMs ? { signal: AbortSignal.timeout(options.timeoutMs) } : {}),
   });
   if (!res.ok) throw new Error(`Vertex ${res.status}: ${(await res.text()).slice(0, 300)}`);
   const data = (await res.json()) as any;
