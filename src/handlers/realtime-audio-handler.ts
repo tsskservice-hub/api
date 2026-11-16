@@ -4,6 +4,7 @@
  */
 
 import { Context } from 'hono';
+import { JAPANESE_STYLE_RULES } from '../utils/japanese-style';
 import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { buildObentoU4YamatoPrompt } from '../prompts/obento-u4';
 import { buildEoyOralAcceleratedPrompt } from '../prompts/eoy-oral-accelerated'; // 💡 Accelerated用プロンプト生成関数をインポート
@@ -78,7 +79,7 @@ export async function handleRealtimeSessionRequest(c: Context) {
    - When the conversation reaches its goal or finishes, include an appropriate polite closing statement.
 `;
 
-    const finalInstructions = `${dynamicSystemPrompt}\n\n${speedRules}\n\n${taskRules}`;
+    const finalInstructions = `${dynamicSystemPrompt}\n\n${speedRules}\n\n${taskRules}\n\n- ${JAPANESE_STYLE_RULES}`;
 
     // 🎙️ OpenAI Realtime API (GA仕様: client_secrets) へ一時トークンを要求
     const response = await fetch("https://api.openai.com/v1/realtime/client_secrets", {

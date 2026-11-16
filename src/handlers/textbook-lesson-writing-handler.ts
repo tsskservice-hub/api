@@ -27,6 +27,7 @@
  *   任意: VERTEX_AI_READ_MODEL, VERTEX_AI_FEEDBACK_MODEL（モデル名を上書きしたい場合）
  */
 
+import { normalizeKiku } from '../utils/japanese-style';
 import type { Context } from 'hono';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getSupabaseAdmin } from '../services/supabase-admin';
@@ -318,10 +319,12 @@ async function callGemini(
 
   const data: any = await res.json();
   const candidate = data?.candidates?.[0];
-  const text: string = (candidate?.content?.parts ?? [])
-    .filter((p: any) => typeof p.text === 'string' && !p.thought) // 思考パートは除く
-    .map((p: any) => p.text)
-    .join('');
+  const text: string = normalizeKiku(
+    (candidate?.content?.parts ?? [])
+      .filter((p: any) => typeof p.text === 'string' && !p.thought) // 思考パートは除く
+      .map((p: any) => p.text)
+      .join('')
+  ); // 「聴きます」などは「聞きます」に直す（utils/japanese-style.ts）
 
   if (!text) {
     console.error(`${LOG_PREFIX} Vertex AI empty answer:`, candidate?.finishReason, JSON.stringify(data).slice(0, 500));

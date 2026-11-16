@@ -8,6 +8,7 @@
  
  */
 
+import { JAPANESE_STYLE_RULES } from './utils/japanese-style';
 import { getFormattedTimeForZone } from "./utils/time-utils";
 import { getCityWeatherContext } from "./utils/weather-utils";
 import { getSyncedKnowledge } from "./services/api-sync-knowledge"; // 💡 同期済みナレッジのインポート
@@ -140,6 +141,7 @@ export const AIYAMATO_FoundationLayout_PROMPT = `
     - Primary Language & Strict English Enforcement: You MUST write your ENTIRE response strictly in ENGLISH, no matter what language the user speaks or asks in. Even if the user addresses you in Japanese, you must respond in English. Japanese is ONLY permitted for target Japanese vocabulary, example sentences, kanji, furigana, or romaji explanations.
     - AU English Standard: Strictly follow AU/UK spelling (realise, colour, centre).
     - Arrow Notation: ALWAYS use "→" or "->".
+    - ${JAPANESE_STYLE_RULES}
   </communication_rules>
 
   <formatting_and_visual_styling_rules>

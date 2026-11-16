@@ -10,6 +10,7 @@ import { generateVisualAid } from '../services/imagen-service';
 import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
 import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
+import { normalizeKiku } from '../utils/japanese-style';
 
 /**
  * 🎙️ OpenAI Whisper API (STT) を用いて音声を日本語テキストに文字起こしする関数（堅牢版）
@@ -262,8 +263,10 @@ export async function handleChatOrTtsRequest(c: Context) {
 
     const data = (await vertexRes.json()) as any;
     
-    const aiReply =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。';
+    // 「聴きます」などは「聞きます」に直す（サイト全体の表記ルール。utils/japanese-style.ts）
+    const aiReply = normalizeKiku(
+      data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。'
+    );
     
     let imageUrl: string | undefined = undefined;
     let promptToUse = body.visualPrompt;
