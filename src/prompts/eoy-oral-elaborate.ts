@@ -47,6 +47,12 @@ export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
   expectedQuestion?: string;
   /** その質問に対して生徒が登録した答え（画面から。タグは除去済み） */
   registeredAnswer?: string;
+  /** つっこみ質問を作る回か（3 問に 1 回。chat-handler が決める） */
+  requestFollowUp?: boolean;
+  /** つっこみ質問への答えか（無料の券が使えたとき） */
+  isFollowUpAnswer?: boolean;
+  /** 会話の難しさ（つっこみ質問の言葉のレベル） */
+  difficulty?: "steady" | "normal" | "accelerated";
   timeZone?: string;
   cityName?: string;
   /** 必要に応じて getSyncedKnowledge に渡す環境変数など */
@@ -57,7 +63,7 @@ export interface EoyOralElaboratePromptOptions extends YamatoApiCommonOptions {
  * EOY Oral Elaborate 固有のアイデンティティとコンテキストを構築する関数
  */
 export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromptOptions = {}): Promise<string> {
-  const { pace, env, expectedQuestion, registeredAnswer, ...baseOptions } = options;
+  const { pace, env, expectedQuestion, registeredAnswer, requestFollowUp, isFollowUpAnswer, difficulty, ...baseOptions } = options;
 
   // 💡 API側の同期済みナレッジ（syncedKnowledge）を非同期で取得
   const syncedKnowledge = await getSyncedKnowledge(env);
@@ -67,7 +73,11 @@ export async function buildEoyOralElaboratePrompt(options: EoyOralElaboratePromp
   const paceInstruction = getOralPaceInstruction(pace);
 
   // 今の質問と登録した答え（あるときだけ）
-  const turnContext = buildOralTurnContext("elaborate", expectedQuestion, registeredAnswer);
+  const turnContext = buildOralTurnContext("elaborate", expectedQuestion, registeredAnswer, {
+    requestFollowUp,
+    isFollowUpAnswer,
+    difficulty,
+  });
 
   // EOY Oral Elaborate 固有の設定
   const EOY_ORAL_ELABORATE_SPECIFIC_CONTEXT = `

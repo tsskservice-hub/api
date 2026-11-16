@@ -11,7 +11,7 @@
 
 import { Context } from 'hono';
 import { getSupabaseAdmin, consumeUserCredits, refundUserCredits } from '../services/supabase-admin';
-import { determineRequiredCreditsFromPayload, getRequiredCredits, FeatureKey, SERVER_CREDIT_COSTS } from '../credit-rules';
+import { determineFeatureKeyFromPayload, getRequiredCredits, FeatureKey } from '../credit-rules';
 
 export interface CreditReservation {
   ok: boolean;
@@ -24,24 +24,10 @@ export interface CreditReservation {
 }
 
 /**
- * リクエスト内容から、どの機能（FeatureKey）かを判定する
+ * リクエスト内容から、どの機能（FeatureKey）かを判定する（判定のしかたは credit-rules.ts にまとめてある）
  */
 function determineFeatureKey(body: any): FeatureKey {
-  const requiredCredits = determineRequiredCreditsFromPayload(body);
-
-  if (body.featureKey && body.featureKey in SERVER_CREDIT_COSTS) {
-    return body.featureKey;
-  }
-  if (requiredCredits >= 10) return 'mockFull';
-  if (requiredCredits === 6) {
-    if (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") return 'mockSection2';
-    if (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") return 'mockSection1';
-    return 'multiImageAi';
-  }
-  if (requiredCredits === 4 && (body.isVoiceMode === 'elaborate' || body.appType === 'eoy-oral-elaborate')) return 'voiceElaborate';
-  if (requiredCredits === 4) return 'imageAi';
-  if (requiredCredits === 3 && (body.isVoiceMode === 'drill' || body.appType === 'eoy-oral-drill')) return 'voiceDrill';
-  return 'textAi';
+  return determineFeatureKeyFromPayload(body);
 }
 
 /**

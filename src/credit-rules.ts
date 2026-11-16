@@ -3,15 +3,16 @@
  * @description サーバーサイド用：機能ごとの最大予想消費クレジット数（キャップ）の定義と機能判定・検証ヘルパー
  */
 
+// 💡 公開している料金表（Credit Consumption Guide）と同じ数字にする。変えるときは料金表（Supabase の PRICE_PLANS）も一緒に変える
 export const SERVER_CREDIT_COSTS = {
-  textAi: 2,         // 通常のテキストAIチャット
-  imageAi: 4,        // 画像生成・原稿用紙AIレイアウト、または画像添付1枚のチャット
-  multiImageAi: 6,   // 添付画像2枚以上のチャット
-  voiceDrill: 3,     // eoy-oral-drill.ts (音声の一問一答ドリル)
-  voiceElaborate: 4, // eoy-oral-elaborate.ts (音声の詳細応答・発展学習)
-  mockSection1: 6,   // eoy-oral-mock.ts (Section 1: 約7分間のセクション)
-  mockSection2: 6,   // eoy-oral-mock.ts (Section 2: 約8分間のセクション)
-  mockFull: 10,      // eoy-oral-mock.ts (フル通し模試: 約15分間のフル試問)
+  textAi: 2,         // Text Chat: 2 credits / turn
+  imageAi: 4,        // Image Attachment (1) / 画像生成: 4 credits
+  multiImageAi: 6,   // Image Attachments (2 to 4): 6 credits
+  voiceDrill: 4,     // Voice AI: EOY Oral Drill: 4 credits / question
+  voiceElaborate: 8, // Voice AI: EOY Oral Elaborate: 8 credits / question
+  mockSection1: 15,  // Voice AI: Mock Section 1 (approx. 7 min): 15 credits / mock
+  mockSection2: 15,  // Voice AI: Mock Section 2 (approx. 8 min): 15 credits / mock
+  mockFull: 25,      // Voice AI: Full Mock (approx. 15 min): 25 credits / mock
 } as const;
 
 export type FeatureKey = keyof typeof SERVER_CREDIT_COSTS;
@@ -26,68 +27,52 @@ export function getRequiredCredits(feature: FeatureKey): number {
 }
 
 /**
- * リクエストのペイロードや appType から、どの機能（FeatureKey）に該当するかを自動判定して必要なクレジット数を算出するヘルパー
- * @param body APIリクエストのボディ
- * @returns 必要なクレジット数
+ * リクエストの内容から、どの機能（料金区分）かを決める
+ * 🔐 ブラウザが送る featureKey は使わない（安い区分を名乗って払う額を減らせてしまうため）。
+ *    appType（＝どの AI 指示を使うか）を最優先にし、isVoiceMode / isMock* は appType で決まらないときだけ使う
  */
-export function determineRequiredCreditsFromPayload(body: {
+export function determineFeatureKeyFromPayload(body: {
   requestVisualAid?: boolean;
   appType?: string;
-  featureKey?: FeatureKey;
   isMockFull?: boolean;
   isMockSection?: "1" | "2";
   isVoiceMode?: "drill" | "elaborate";
   imageBase64?: string;
   questionImageBase64?: string;
   questionImagesBase64?: string[];
-}): number {
-  // 1. 明示的に featureKey が指定されている場合
-  if (body.featureKey && SERVER_CREDIT_COSTS[body.featureKey]) {
-    return SERVER_CREDIT_COSTS[body.featureKey];
-  }
+}): FeatureKey {
+  const appType = body.appType || "";
 
-  // 2. モードや appType に応じた判定
-  if (body.isMockFull || body.appType === "eoy-oral-mock-full") {
-    return SERVER_CREDIT_COSTS.mockFull;
-  }
-  if (body.isMockSection === "1" || body.appType === "eoy-oral-mock-section1") {
-    return SERVER_CREDIT_COSTS.mockSection1;
-  }
-  if (body.isMockSection === "2" || body.appType === "eoy-oral-mock-section2") {
-    return SERVER_CREDIT_COSTS.mockSection2;
-  }
-  if (body.isVoiceMode === "drill" || body.appType === "eoy-oral-drill") {
-    return SERVER_CREDIT_COSTS.voiceDrill;
-  }
-  if (body.isVoiceMode === "elaborate" || body.appType === "eoy-oral-elaborate") {
-    return SERVER_CREDIT_COSTS.voiceElaborate;
-  }
-  
-  // 3. 画像生成AIを使って絵を描いてもらう場合
-  if (body.requestVisualAid) {
-    return SERVER_CREDIT_COSTS.imageAi; // 4 credits
-  }
+  // 1. appType で決まるもの（AI 指示と料金区分を必ず一致させる）
+  if (appType === "eoy-oral-drill") return "voiceDrill";
+  if (appType === "eoy-oral-elaborate") return "voiceElaborate";
+  if (appType === "eoy-oral-mock-full") return "mockFull";
+  if (appType === "eoy-oral-mock-section1") return "mockSection1";
+  if (appType === "eoy-oral-mock-section2") return "mockSection2";
 
-  // 4. アップロードされた画像の総枚数を計算
+  // 2. 旧形式のフラグ
+  if (body.isMockFull) return "mockFull";
+  if (body.isMockSection === "1") return "mockSection1";
+  if (body.isMockSection === "2") return "mockSection2";
+  if (body.isVoiceMode === "elaborate") return "voiceElaborate";
+  if (body.isVoiceMode === "drill") return "voiceDrill";
+
+  // 3. 画像
+  if (body.requestVisualAid) return "imageAi";
   let totalImagesCount = 0;
-  if (body.questionImagesBase64 && Array.isArray(body.questionImagesBase64)) {
-    totalImagesCount += body.questionImagesBase64.length;
-  }
-  if (body.questionImageBase64) {
-    totalImagesCount += 1;
-  }
-  if (body.imageBase64) {
-    totalImagesCount += 1;
-  }
+  if (Array.isArray(body.questionImagesBase64)) totalImagesCount += body.questionImagesBase64.length;
+  if (body.questionImageBase64) totalImagesCount += 1;
+  if (body.imageBase64) totalImagesCount += 1;
+  if (totalImagesCount >= 2) return "multiImageAi";
+  if (totalImagesCount === 1) return "imageAi";
 
-  // 5. 添付画像の枚数に応じた判定（2枚以上なら6クレジット、1枚なら4クレジット）
-  if (totalImagesCount >= 2) {
-    return SERVER_CREDIT_COSTS.multiImageAi; // 6 credits (添付画像2枚以上)
-  }
-  if (totalImagesCount === 1) {
-    return SERVER_CREDIT_COSTS.imageAi; // 4 credits (添付画像1枚)
-  }
+  // 4. それ以外は通常のテキストチャット
+  return "textAi";
+}
 
-  // 6. デフォルトは通常のテキストAIチャット
-  return SERVER_CREDIT_COSTS.textAi; // 2 credits
+/**
+ * リクエストに必要なクレジット数
+ */
+export function determineRequiredCreditsFromPayload(body: Parameters<typeof determineFeatureKeyFromPayload>[0]): number {
+  return SERVER_CREDIT_COSTS[determineFeatureKeyFromPayload(body)];
 }

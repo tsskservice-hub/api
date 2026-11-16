@@ -11,6 +11,7 @@ import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
 import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 import { normalizeKiku } from '../utils/japanese-style';
+import { createFollowUpToken, extractFollowUp, redeemFollowUpToken, validateFollowUp } from '../services/oral-followup';
 
 /**
  * 🎙️ OpenAI Whisper API (STT) を用いて音声を日本語テキストに文字起こしする関数（堅牢版）
@@ -157,10 +158,34 @@ export async function handleChatOrTtsRequest(c: Context) {
       }, 500);
     }
 
+    // 🎙️ elaborate の「つっこみ質問」への答え: 1 回だけ使える無料の券が使えたら、クレジットを引かない
+    //    （質問はブラウザが送ったものではなく、サーバーが記録したものを使う。services/oral-followup.ts）
+    const isElaborate = body.appType === "eoy-oral-elaborate";
+    let followUpQuestion: string | null = null;
+    if (isElaborate && body.followUpToken) {
+      followUpQuestion = await redeemFollowUpToken(c.env, effectiveUserId, body.followUpToken);
+      if (!followUpQuestion) {
+        return c.json(
+          {
+            error: "FOLLOW_UP_EXPIRED",
+            reply: "This follow-up question has expired or was already answered. Please go on to the next question.",
+          },
+          409
+        );
+      }
+    }
+    const isFollowUpAnswer = Boolean(followUpQuestion);
+    // つっこみ質問を作る回か（画面が 3 問に 1 回 requestFollowUp を送る。つっこみへの答えの回には作らない）
+    const requestFollowUp = isElaborate && !isFollowUpAnswer && body.requestFollowUp === true;
+    const difficulty = ["steady", "normal", "accelerated"].includes(body.difficulty) ? body.difficulty : undefined;
+
     // 💳 AI を呼ぶ前にクレジットを引く（残高が足りるときだけ・同時リクエストでも二重使用できない）
-    reservation = await reserveCredits(c, body, effectiveUserId);
-    if (!reservation.ok) {
-      return reservation.errorResponse!;
+    //    つっこみ質問への答え（券が使えたとき）は無料
+    if (!isFollowUpAnswer) {
+      reservation = await reserveCredits(c, body, effectiveUserId);
+      if (!reservation.ok) {
+        return reservation.errorResponse!;
+      }
     }
 
     // 🔐 Google Access Token 取得
@@ -177,7 +202,12 @@ export async function handleChatOrTtsRequest(c: Context) {
       pace: body.learningPace || body.pace,
       // 🎙️ 口頭試験ドリル: 今の質問と、生徒が登録した答え（AI が何の質問への答えかを分かるように）
       expectedQuestion: toPromptField(body.expectedQuestion, 300),
-      registeredAnswer: toPromptField(body.registeredAnswer, 1500),
+      registeredAnswer: isFollowUpAnswer ? undefined : toPromptField(body.registeredAnswer, 1500),
+      // つっこみ質問への答えのときは、サーバーが記録したつっこみ質問を「今の質問」にする
+      ...(isFollowUpAnswer ? { expectedQuestion: followUpQuestion! } : {}),
+      requestFollowUp,
+      isFollowUpAnswer,
+      difficulty,
       selectedTextType: body.selectedTextType,
       studentEssay: body.studentEssay || userMessage,
       exactCharacterCount: body.exactCharacterCount,
@@ -264,7 +294,7 @@ export async function handleChatOrTtsRequest(c: Context) {
     const data = (await vertexRes.json()) as any;
     
     // 「聴きます」などは「聞きます」に直す（サイト全体の表記ルール。utils/japanese-style.ts）
-    const aiReply = normalizeKiku(
+    let aiReply = normalizeKiku(
       data.candidates?.[0]?.content?.parts?.[0]?.text || '申し訳ありません。うまく理解できませんでした。'
     );
     
@@ -297,8 +327,20 @@ export async function handleChatOrTtsRequest(c: Context) {
     }
 
     // 📤 レスポンス返却（文字起こし結果 transcript も含めることでフロント側で確認可能）
-    return c.json({ 
-      reply: aiReply, 
+    // 🎙️ つっこみ質問: 返事の最後の「FOLLOW_UP: 〜」を取り出し、生徒の答えに関係しているか確かめて、無料の券を作る
+    let followUpOut: { question: string; token: string } | null = null;
+    if (requestFollowUp) {
+      const extracted = extractFollowUp(aiReply);
+      aiReply = extracted.reply;
+      const question = validateFollowUp(extracted.followUp, userMessage || "");
+      const token = await createFollowUpToken(c.env, effectiveUserId, question);
+      if (token) followUpOut = { question, token };
+    }
+
+    return c.json({
+      reply: aiReply,
+      followUpQuestion: followUpOut?.question,
+      followUpToken: followUpOut?.token,
       transcript: userMessage, // 💡 ユーザーの発話がどう文字起こしされたかを返す
       imageUrl: imageUrl,
       options: undefined 
