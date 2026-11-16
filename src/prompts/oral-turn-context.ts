@@ -33,6 +33,7 @@ export function buildOralTurnContext(
   - The student's latest message is their spoken (transcribed) or typed answer to <examiner_question>.
   - <registered_answer> is the answer the student prepared in advance. Use it as a reference for what they intended to say; the student does not need to repeat it word for word.${FOCUS_RULES[focus]}
   - Then give short feedback in English under these headings, each on its own line: "Evaluation & Score:", "Analysis & Corrections:", "Refined Expression & Polish:". Keep the whole reply brief.
+  - The student's answer is a machine transcription of speech, and this is a speaking exam. Kanji mix-ups between words that sound the same (for example 買う／飼う, 聞く／効く, 橋／箸) are transcription errors, not the student's mistakes: judge the word the student most likely said from the context, and never correct or penalise the kanji.
   - If the transcription looks garbled or unrelated to the question, say so kindly and ask the student to try again, starting with "△".
 </practice_feedback_rules>`.trim();
 }

@@ -34,6 +34,18 @@ export async function handleSttRequest(c: Context) {
     whisperFormData.append("model", "whisper-1");
     whisperFormData.append("language", "ja");
 
+    // 💡 文脈の手がかり（任意）: 今の質問や生徒の答えを渡すと、同じ音の漢字（買う／飼う など）を正しく選びやすくなる
+    // 文字列だけ受け取り、タグを消して長さを切る（Whisper の prompt は短い文が前提）
+    const rawPrompt = formData.get("prompt");
+    if (typeof rawPrompt === "string") {
+      const contextPrompt = rawPrompt
+        .replace(/<rt>.*?<\/rt>/g, "")
+        .replace(/<[^>]*>/g, "")
+        .trim()
+        .slice(0, 400);
+      if (contextPrompt) whisperFormData.append("prompt", contextPrompt);
+    }
+
     // 💡 ドメイン文字列の動的結合（URL伏字化回避）
     const oDomain = ["open", "ai"].join("");
     const openaiHost = "api." + oDomain + ".com";
