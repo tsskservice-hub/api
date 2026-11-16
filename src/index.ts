@@ -10,6 +10,7 @@ import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
 import { handleKanjiLookup } from './handlers/kanji-lookup-handler';
+import { handleOralMockStart, handleOralMockTurn, handleOralMockFeedback, handleOralMockSupportImage } from './handlers/oral-mock-handler';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
@@ -56,7 +57,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image']) {
   app.use(path, requireAuth);
 }
 
@@ -127,6 +128,12 @@ app.post('/api/stt', handleSttRequest);
 
 // 🔍 漢字AI検索（ログインしていなくても使える。回数と料金はハンドラーと SQL 37 が決める）
 app.post('/api/kanji-lookup', handleKanjiLookup);
+
+// 🎙️ EOY Oral Mock（模擬試験）: 始める（クレジットを 1 回だけ引く）→ 試験官の返事 → 終わったあとのフィードバック
+app.post('/api/oral-mock/start', handleOralMockStart);
+app.post('/api/oral-mock/turn', handleOralMockTurn);
+app.post('/api/oral-mock/feedback', handleOralMockFeedback);
+app.post('/api/oral-mock/support-image', handleOralMockSupportImage);
 
 // 🎙️ リアルタイム音声セッション（OpenAI Realtime API）発行用エンドポイント
 app.post('/api/realtime/session', handleRealtimeSessionRequest);

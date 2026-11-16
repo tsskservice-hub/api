@@ -15,6 +15,7 @@ import type { Context } from 'hono';
 import { getSupabaseAdmin } from '../services/supabase-admin';
 import { getGoogleAccessToken } from '../services/google-auth';
 import { SERVER_CREDIT_COSTS } from '../credit-rules';
+import { counterReading, hiraganaToRomaji } from '../services/japanese-counters';
 
 const USER_FREE_LIMIT = 20;
 const GUEST_FREE_LIMIT = 3;
@@ -55,6 +56,13 @@ For each word give:
 - "reading": the reading in hiragana for THIS context (e.g. 今日 = きょう, 上手 = じょうず). Hiragana only.
 - "romaji": Hepburn romaji of the reading
 - "meaning": a short English meaning (max 8 words) for this context
+Numbers with counters change their sound. Apply these rules carefully:
+- 十分 is じゅっぷん (ten minutes) or じゅうぶん (enough) — decide from the CONTEXT
+- 一分 いっぷん, 三分 さんぷん, 四分 よんぷん, 六分 ろっぷん, 八分 はっぷん, 十分 じゅっぷん, 十一分 じゅういっぷん, 二十分 にじゅっぷん
+- 一本 いっぽん, 三本 さんぼん, 六本 ろっぽん; 一匹 いっぴき, 三匹 さんびき; 一杯 いっぱい, 三杯 さんばい
+- 一回 いっかい, 一個 いっこ, 一冊 いっさつ, 一歳 いっさい, 二十歳 はたち, 一人 ひとり, 二人 ふたり, 四人 よにん
+- 四時 よじ, 七時 しちじ, 九時 くじ, 四月 しがつ, 七月 しちがつ, 九月 くがつ
+- 二日 ふつか, 三日 みっか, 四日 よっか, 五日 いつか, 六日 むいか, 七日 なのか, 八日 ようか, 九日 ここのか, 十日 とおか, 十四日 じゅうよっか, 二十日 はつか
 Return JSON only.`;
 
 const RESPONSE_SCHEMA = {
@@ -183,6 +191,11 @@ export async function handleKanjiLookup(c: Context) {
         meaning: cleanText(w?.meaning, 80),
       }))
       .filter((w: any) => w.word && query.includes(w.word) && KANJI_RE.test(w.word) && KANA_ONLY_RE.test(w.reading))
+      // 「数字＋数え方」（十一分・三本・二十日 など）は、AI ではなく決まったルールで読みを出す（AI がよく間違えるため）
+      .map((w: any) => {
+        const fixed = counterReading(w.word);
+        return fixed ? { ...w, reading: fixed, romaji: hiraganaToRomaji(fixed) } : w;
+      })
       .slice(0, 8);
 
     if (words.length === 0) throw new Error('No valid words in AI response');
