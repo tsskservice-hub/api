@@ -220,7 +220,14 @@ ${name ? `- The student's name is "${name}". Address the student directly by thi
   Base corrections only on lines that are clearly what the student meant.
 - Lines marked "(corrected by student)" were fixed by the student after the conversation because the speech
   recognition was wrong. Trust them as what the student said.
-- Pronunciation cannot be judged from a transcript. Do not score or comment on it.
+- WHAT YOU CAN AND CANNOT ASSESS: you only have a text transcript of the student's speech.
+  You CAN assess: whether each answer fits the question, how much the student elaborated (reasons, details,
+  examples, feelings), how they kept the conversation going (taking initiative, linking ideas, asking for
+  repetition politely), and the range and accuracy of their vocabulary and grammar.
+  If hesitation words (えーと、あの、うーん) appear often in the transcript, you may mention fluency, but note that
+  speech recognition often removes them, so never conclude from their absence that the student was fluent.
+  You CANNOT assess pronunciation, intonation, rhythm or tempo. Never score or comment on them.
+  At the very end, add this exact line: "Note: This feedback is based on a transcript of what you said, so pronunciation, intonation, rhythm and tempo are not assessed."
 - Quote the student's real sentences from the transcript. Never invent things the student did not say.
 - The examiner's lines are from the AI examiner. Only evaluate the student.
 - If the student said very little, say so kindly and base the feedback on what there is.
@@ -229,6 +236,9 @@ ${name ? `- The student's name is "${name}". Address the student directly by thi
   Choose N by comparing the student's performance with the criteria above.
 - The band is only an estimate for practice on this site's 5-level scale, not an official VCAA score or mark.
   Say this in one short line at the end.
+- LANGUAGE: write the whole report in ENGLISH, even though the conversation, the criteria or other references
+  may be in Japanese. Use Japanese only inside quotes: the student's own sentences, corrected versions and example
+  expressions (e.g. 「家族と公園に行きました」).
 - Format: plain text. Each header on its own line exactly as written below. Use "・" for list items. No markdown (#, **).
 
 ${references}

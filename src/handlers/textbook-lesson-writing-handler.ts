@@ -124,6 +124,21 @@ function computeDeleteAfter(settings: WritingSettings): string | null {
   return null;
 }
 
+/**
+ * 宿題の学校時間ブロック（ポータルの SQL 44）。このライティングが「授業中はしてはいけない宿題」で、
+ * 今が学校時間中なら止める。判定はデータベースの関数 homework_task_lock 1 か所（ポータルと同じ）。
+ * SQL 44 の前（関数が無い）は止めない。
+ */
+async function assertHomeworkNotLocked(admin: SupabaseClient, userId: string, lessonId: string) {
+  const { data, error } = await admin.rpc('homework_task_lock', { p_user_id: userId, p_lesson_id: lessonId, p_task: 'writing' });
+  if (error || !(data as any)?.locked) return;
+  throw new HttpError(
+    423,
+    'homework_locked',
+    "This writing task is homework, so it can't be done during school hours. Please try again after school."
+  );
+}
+
 async function loadTask(admin: SupabaseClient, by: { lessonId?: string; taskId?: string }) {
   let query = admin.from('edu_writing_tasks').select('*');
   if (by.taskId) query = query.eq('id', by.taskId);
@@ -449,6 +464,7 @@ async function handleRead(admin: SupabaseClient, userId: string, env: Env, body:
 
   const task = await loadTask(admin, { taskId: body.taskId });
   if (!task) throw new HttpError(404, 'task_not_found', 'This writing task could not be found.');
+  await assertHomeworkNotLocked(admin, userId, task.lesson_id);
 
   const settings = await loadSettings(admin, userId);
   const usage = await loadUsage(admin, userId, task.id);
@@ -571,6 +587,7 @@ async function handleFeedback(admin: SupabaseClient, userId: string, env: Env, b
 
   const task = await loadTask(admin, { taskId: submission.task_id });
   if (!task) throw new HttpError(404, 'task_not_found', 'This writing task could not be found.');
+  await assertHomeworkNotLocked(admin, userId, task.lesson_id);
   const settings = await loadSettings(admin, userId);
 
   const intendedText = typeof body.intendedText === 'string' ? body.intendedText.trim().slice(0, 2000) : '';
