@@ -111,12 +111,9 @@ export async function handleOralSuperbStart(c: Context) {
     audio: {
       input: {
         // 生徒の声を文字にする（画面の記録と、最後のフィードバックのため）
-        // 聞き取りの正確さを上げるため、mini ではない gpt-4o-transcribe を使い、会話の場面を手がかりとして渡す
-        transcription: {
-          model: 'gpt-4o-transcribe',
-          language: 'ja',
-          prompt: 'オーストラリアの高校生が、日本語の先生と日本語で会話しています。VCE日本語の口頭試験の練習です。',
-        },
+        // 聞き取りの正確さを上げるため、mini ではない gpt-4o-transcribe を使う。
+        // 場面の手がかり（prompt）は渡さない: 雑音しかないとき、手がかりの文を生徒の発言として書いてしまうため
+        transcription: { model: 'gpt-4o-transcribe', language: 'ja' },
         // 生徒が考える時間をとれるように、話の切れ目の判定はゆっくりめ
         turn_detection: { type: 'semantic_vad', eagerness: 'low' },
         noise_reduction: { type: 'near_field' },
