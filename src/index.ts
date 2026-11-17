@@ -11,11 +11,11 @@ import { requireAuth } from './services/auth';
 import { handleKanjiLookup } from './handlers/kanji-lookup-handler';
 import { handleOralMockStart, handleOralMockTurn, handleOralMockFeedback, handleOralMockSupportImage } from './handlers/oral-mock-handler';
 import {
-  handleOralAcceleratedStart,
-  handleOralAcceleratedEnd,
-  handleOralAcceleratedFeedback,
+  handleOralSuperbStart,
+  handleOralSuperbEnd,
+  handleOralSuperbFeedback,
   hangupExpiredRealtimeCalls,
-} from './handlers/oral-accelerated-handler';
+} from './handlers/oral-superb-handler';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
@@ -36,7 +36,7 @@ type Bindings = {
   SYNC_API_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
   OPENAI_API_KEY?: string;
-  /** EOY Oral Accelerated で使う Realtime のモデル（省略すると gpt-realtime-mini） */
+  /** EOY Oral Superb で使う Realtime のモデル（省略すると gpt-realtime-mini） */
   REALTIME_MODEL?: string;
   YAMATO_KNOWLEDGE?: KVNamespace;
   LIVE_GAME: DurableObjectNamespace;
@@ -64,7 +64,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image', '/api/oral-accelerated/start', '/api/oral-accelerated/end', '/api/oral-accelerated/feedback']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image', '/api/oral-superb/start', '/api/oral-superb/end', '/api/oral-superb/feedback']) {
   app.use(path, requireAuth);
 }
 
@@ -142,10 +142,10 @@ app.post('/api/oral-mock/turn', handleOralMockTurn);
 app.post('/api/oral-mock/feedback', handleOralMockFeedback);
 app.post('/api/oral-mock/support-image', handleOralMockSupportImage);
 
-// ⚡ EOY Oral Accelerated（Realtime の自由会話）: 始める（クレジットを 1 回だけ引く）→ 終える → フィードバック
-app.post('/api/oral-accelerated/start', handleOralAcceleratedStart);
-app.post('/api/oral-accelerated/end', handleOralAcceleratedEnd);
-app.post('/api/oral-accelerated/feedback', handleOralAcceleratedFeedback);
+// ⚡ EOY Oral Superb（Realtime の自由会話）: 始める（クレジットを 1 回だけ引く）→ 終える → フィードバック
+app.post('/api/oral-superb/start', handleOralSuperbStart);
+app.post('/api/oral-superb/end', handleOralSuperbEnd);
+app.post('/api/oral-superb/feedback', handleOralSuperbFeedback);
 
 
 // ✍️ 教科書準拠レッスンのライティング課題（textbook-lesson-writing-handler.ts へ委譲）
@@ -179,7 +179,7 @@ export default {
     return app.fetch(request, env, ctx);
   },
   async scheduled(event: { cron?: string }, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {
-    // 1 分ごと: 時間を過ぎても切られていない Realtime の会話（EOY Oral Accelerated）をサーバー側から切る
+    // 1 分ごと: 時間を過ぎても切られていない Realtime の会話（EOY Oral Superb）をサーバー側から切る
     if (event?.cron === '* * * * *') {
       ctx.waitUntil(
         hangupExpiredRealtimeCalls(env).catch((err) => {

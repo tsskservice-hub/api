@@ -53,6 +53,12 @@ export function buildExaminerPrompt(opts: {
       stage === 'sec1'
         ? `Start Section 1 now: say in one short sentence that the general conversation begins, then ask your first question about the CURRENT TOPIC: ${topic || 'the student\'s family'}.`
         : 'Start Section 2 now: say in one short sentence that Section 2 (the detailed study discussion) begins, then ask the student what their sub-topic is.';
+  } else if (mode === 'reply' && stage === 'sec2' && switchTopic && topic) {
+    task = `Now move to a NEW ANGLE on the student's sub-topic: ${topic}. Stay on the same sub-topic, but look at it from this new angle.
+- First, a very short reaction to the student's last answer (e.g. 「なるほど。」「そうですか。」).
+- Then a short transition, e.g. 「では、別の点について聞きます。」「では、少し見方を変えましょう。」
+- Then ONE question about the sub-topic from the new angle.
+- For this turn you may use up to 3 short sentences (about 80 Japanese characters).`;
   } else if (mode === 'reply' && stage === 'sec1' && switchTopic && topic) {
     task = `Now CHANGE TO A NEW TOPIC: ${topic}. This is a big change of topic, like a real examiner moving on.
 - First, a very short reaction to the student's last answer (e.g. 「そうですか。」「ありがとうございます。」).
@@ -71,7 +77,11 @@ Do NOT ask any question. Do NOT say goodbye or thank you (the closing words are 
   (reason, detail, example, feelings, comparison). After 2–3 questions on the same thing, move to a new area.
 - If the student's answer was very short or unclear, ask a simpler question about the same thing.
 - If the student said something off-topic or inappropriate, politely bring the conversation back to the exam.${
-       stage === 'sec1' && topic ? `\n- CURRENT TOPIC: ${topic}. Keep your question on this topic (follow up on what the student said about it).` : ''
+       stage === 'sec1' && topic
+         ? `\n- CURRENT TOPIC: ${topic}. Keep your question on this topic (follow up on what the student said about it).`
+         : stage === 'sec2' && topic
+         ? `\n- CURRENT ANGLE on the sub-topic: ${topic}. Keep your question on this angle.`
+         : ''
      }`;
   }
 
@@ -162,7 +172,10 @@ export function buildMockFeedbackPrompt(opts: {
   advice?: unknown;
   /** Section 2 で生徒が見せた写真の説明 */
   supportDescription?: string | null;
+  /** 生徒の呼び名（ニックネーム）。フィードバックで "the student" のかわりに使う */
+  studentName?: string;
 }): string {
+  const name = (opts.studentName || '').trim();
   const criteriaText = toText(opts.criteria, 9000);
   const references = [
     criteriaText
@@ -199,8 +212,14 @@ how well the student understood and answered each question, how much they elabor
 conversation going, and the accuracy and range of their Japanese.
 
 IMPORTANT:
-- The student's words come from speech recognition. If only the kanji differ for a word that sounds the same
+${name ? `- The student's name is "${name}". Address the student directly by this name (e.g. "${name}, you…", "Great work, ${name}!"). Never write "the student".\n` : '- Address the student directly as "you". Never write "the student".\n'}- The student's words come from speech recognition. If only the kanji differ for a word that sounds the same
   (e.g. 買った / 飼った), treat it as correct. Do not comment on kanji or punctuation.
+- Speech recognition sometimes mishears a whole word or phrase. If a student line looks strange, unnatural or
+  unrelated to the question in a way a learner at this level would be unlikely to say, assume it was MISHEARD:
+  do not correct it, do not criticise its content, and do not quote it as the student's mistake.
+  Base corrections only on lines that are clearly what the student meant.
+- Lines marked "(corrected by student)" were fixed by the student after the conversation because the speech
+  recognition was wrong. Trust them as what the student said.
 - Pronunciation cannot be judged from a transcript. Do not score or comment on it.
 - Quote the student's real sentences from the transcript. Never invent things the student did not say.
 - The examiner's lines are from the AI examiner. Only evaluate the student.

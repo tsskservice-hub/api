@@ -13,8 +13,8 @@ export const SERVER_CREDIT_COSTS = {
   mockSection1: 15,  // Voice AI: Mock Section 1 (approx. 7 min): 15 credits / mock
   mockSection2: 15,  // Voice AI: Mock Section 2 (approx. 8 min): 15 credits / mock
   mockFull: 25,      // Voice AI: Full Mock (approx. 15 min): 25 credits / mock
-  realtime5: 25,     // Voice AI: EOY Oral Accelerated（Realtime の自由会話）5 分
-  realtime10: 50,    // Voice AI: EOY Oral Accelerated（Realtime の自由会話）10 分
+  realtime5: 25,     // Voice AI: EOY Oral Superb（Realtime の自由会話）5 分
+  realtime10: 50,    // Voice AI: EOY Oral Superb（Realtime の自由会話）10 分
   kanjiLookup: 1,    // 漢字AI検索: 1 日 20 回まで無料、それを超えたら 1 回 1 クレジット（handlers/kanji-lookup-handler.ts）
 } as const;
 
@@ -52,8 +52,8 @@ export function determineFeatureKeyFromPayload(body: {
   if (appType === "eoy-oral-mock-full") return "mockFull";
   if (appType === "eoy-oral-mock-section1") return "mockSection1";
   if (appType === "eoy-oral-mock-section2") return "mockSection2";
-  if (appType === "eoy-oral-accelerated-5") return "realtime5";
-  if (appType === "eoy-oral-accelerated-10") return "realtime10";
+  if (appType === "eoy-oral-superb-5") return "realtime5";
+  if (appType === "eoy-oral-superb-10") return "realtime10";
 
   // 2. 旧形式のフラグ
   if (body.isMockFull) return "mockFull";

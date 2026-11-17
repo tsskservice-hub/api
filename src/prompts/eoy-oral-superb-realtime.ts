@@ -1,6 +1,6 @@
 /**
- * @file eoy-oral-accelerated-realtime.ts
- * @description EOY Oral Accelerated（OpenAI Realtime で話す自由会話）の AI への指示
+ * @file eoy-oral-superb-realtime.ts
+ * @description EOY Oral Superb（OpenAI Realtime で話す自由会話）の AI への指示
  *
  * 前の指示は英語で書かれていて、英語の返事が出ることがあった。
  * ここでは指示をすべて日本語で書き、「日本語だけで話す」を何度も、具体的に伝える。

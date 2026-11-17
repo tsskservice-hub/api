@@ -277,7 +277,7 @@ export async function handleOralMockFeedback(c: Context) {
   }
 
   // フィードバックの形は、生徒の learning pace（アカウントの設定）に合わせる
-  const { data: profile } = await admin.from('profiles').select('learning_pace').eq('id', userId).single();
+  const { data: profile } = await admin.from('profiles').select('learning_pace, nickname').eq('id', userId).single();
   const pace = profile?.learning_pace || 'normal';
   const sectionsTaken =
     session.exam_section === 'both' ? 'Section 1 and Section 2' : session.exam_section === 'section1' ? 'Section 1 only' : 'Section 2 only';
@@ -313,6 +313,7 @@ export async function handleOralMockFeedback(c: Context) {
         report: refs.report,
         advice: refs.advice,
         supportDescription: session.support_description,
+        studentName: clean(profile?.nickname, 30),
       }),
       contents: [{ role: 'user', text: `${durationLine ? `Time spent: ${durationLine}\n` : ''}TRANSCRIPT:${lines.join('\n')}` }],
       temperature: 0.4,

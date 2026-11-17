@@ -1,13 +1,13 @@
 /**
- * @file src/handlers/oral-accelerated-handler.ts
- * @description EOY Oral Accelerated（OpenAI Realtime で AI ヤマトと自由に話す。5 分 / 10 分）
+ * @file src/handlers/oral-superb-handler.ts
+ * @description EOY Oral Superb（OpenAI Realtime で AI ヤマトと自由に話す。5 分 / 10 分）
  *
- *   POST /api/oral-accelerated/start    { minutes, focus, subtopic, sdp }
+ *   POST /api/oral-superb/start    { minutes, focus, subtopic, sdp }
  *        → クレジットを 1 回だけ引き（5 分: 25 / 10 分: 50）、サーバーが OpenAI に会話をつなぐ（API キーはブラウザに出さない）。
  *          OpenAI の会話の ID（call_id）と終わる時刻を記録して、ブラウザには WebRTC の答え（SDP）を返す
- *   POST /api/oral-accelerated/end      { sessionId, englishLeaks }
+ *   POST /api/oral-superb/end      { sessionId, englishLeaks }
  *        → 会話を切る（OpenAI の hangup）。英語が出た回数を記録する
- *   POST /api/oral-accelerated/feedback { sessionId, transcript }
+ *   POST /api/oral-superb/feedback { sessionId, transcript }
  *        → 会話が終わったあとに 1 回だけ、learning pace に合わせたフィードバック（評価基準にもとづく。mock と同じ作り）
  *
  * 時間を過ぎても切られていない会話は、1 分ごとの定期処理（hangupExpiredRealtimeCalls）がサーバー側から切る。
@@ -18,7 +18,7 @@ import { getSupabaseAdmin } from '../services/supabase-admin';
 import { reserveCredits, refundCredits } from './credit-handler';
 import { callGemini } from '../services/gemini';
 import { normalizeKiku } from '../utils/japanese-style';
-import { buildRealtimeInstructions, type RealtimeFocus } from '../prompts/eoy-oral-accelerated-realtime';
+import { buildRealtimeInstructions, type RealtimeFocus } from '../prompts/eoy-oral-superb-realtime';
 import { buildMockFeedbackPrompt } from '../prompts/eoy-oral-mock-exam';
 import { loadOralReferences } from './oral-mock-handler';
 
@@ -50,14 +50,14 @@ async function hangup(env: any, callId: string): Promise<void> {
       signal: AbortSignal.timeout(8000),
     });
   } catch (err: any) {
-    console.warn('⚠️ [oral-accelerated] hangup failed:', err?.message || String(err));
+    console.warn('⚠️ [oral-superb] hangup failed:', err?.message || String(err));
   }
 }
 
 // ---------------------------------------------------------------------------------------------
 // start
 // ---------------------------------------------------------------------------------------------
-export async function handleOralAcceleratedStart(c: Context) {
+export async function handleOralSuperbStart(c: Context) {
   const userId = c.get('userId') as string;
   const body = await readJson(c);
   const minutes = body?.minutes === 5 ? 5 : body?.minutes === 10 ? 10 : null;
@@ -86,7 +86,7 @@ export async function handleOralAcceleratedStart(c: Context) {
   }
 
   // 💳 会話 1 回分のクレジットを先に引く
-  const reservation = await reserveCredits(c, { appType: `eoy-oral-accelerated-${minutes}` }, userId);
+  const reservation = await reserveCredits(c, { appType: `eoy-oral-superb-${minutes}` }, userId);
   if (!reservation.ok) return reservation.errorResponse!;
 
   const endsAt = new Date(Date.now() + (minutes * 60 + GRACE_SECONDS) * 1000);
@@ -96,7 +96,7 @@ export async function handleOralAcceleratedStart(c: Context) {
     .select('id')
     .single();
   if (error || !session) {
-    console.error('❌ [oral-accelerated] session insert failed:', error?.message);
+    console.error('❌ [oral-superb] session insert failed:', error?.message);
     await refundCredits(c.env, reservation);
     return c.json({ error: 'UNAVAILABLE', message: 'We could not start the conversation. Your credits were not used.' }, 503);
   }
@@ -110,7 +110,12 @@ export async function handleOralAcceleratedStart(c: Context) {
     audio: {
       input: {
         // 生徒の声を文字にする（画面の記録と、最後のフィードバックのため）
-        transcription: { model: 'gpt-4o-mini-transcribe', language: 'ja' },
+        // 聞き取りの正確さを上げるため、mini ではない gpt-4o-transcribe を使い、会話の場面を手がかりとして渡す
+        transcription: {
+          model: 'gpt-4o-transcribe',
+          language: 'ja',
+          prompt: 'オーストラリアの高校生が、日本語の先生と日本語で会話しています。VCE日本語の口頭試験の練習です。',
+        },
         // 生徒が考える時間をとれるように、話の切れ目の判定はゆっくりめ
         turn_detection: { type: 'semantic_vad', eagerness: 'low' },
         noise_reduction: { type: 'near_field' },
@@ -133,7 +138,7 @@ export async function handleOralAcceleratedStart(c: Context) {
     const answerSdp = await res.text();
     // 会話の ID は Location ヘッダーの最後（/v1/realtime/calls/rtc_xxx）
     const callId = (res.headers.get('Location') || '').split('/').pop() || null;
-    if (!callId) console.warn('⚠️ [oral-accelerated] no call id in Location header');
+    if (!callId) console.warn('⚠️ [oral-superb] no call id in Location header');
     await admin.from('oral_realtime_sessions').update({ call_id: callId }).eq('id', session.id);
 
     return c.json({
@@ -144,7 +149,7 @@ export async function handleOralAcceleratedStart(c: Context) {
       balance: typeof profile?.credits === 'number' ? profile.credits : null,
     });
   } catch (err: any) {
-    console.error('❌ [oral-accelerated] OpenAI call failed:', err?.message || String(err));
+    console.error('❌ [oral-superb] OpenAI call failed:', err?.message || String(err));
     await admin.from('oral_realtime_sessions').update({ ended_at: new Date().toISOString() }).eq('id', session.id);
     await refundCredits(c.env, reservation);
     return c.json({ error: 'UNAVAILABLE', message: 'We could not connect to AI Yamato. Your credits were not used. Please try again.' }, 502);
@@ -154,7 +159,7 @@ export async function handleOralAcceleratedStart(c: Context) {
 // ---------------------------------------------------------------------------------------------
 // end
 // ---------------------------------------------------------------------------------------------
-export async function handleOralAcceleratedEnd(c: Context) {
+export async function handleOralSuperbEnd(c: Context) {
   const userId = c.get('userId') as string;
   const body = await readJson(c);
   const sessionId = clean(body?.sessionId, 64);
@@ -174,22 +179,27 @@ export async function handleOralAcceleratedEnd(c: Context) {
     .from('oral_realtime_sessions')
     .update({ ended_at: session.ended_at || new Date().toISOString(), english_leaks: englishLeaks })
     .eq('id', sessionId);
-  if (englishLeaks > 0) console.log(`🔤 [oral-accelerated] English leaks in session ${sessionId}: ${englishLeaks}`);
+  if (englishLeaks > 0) console.log(`🔤 [oral-superb] English leaks in session ${sessionId}: ${englishLeaks}`);
   return c.json({ ok: true });
 }
 
 // ---------------------------------------------------------------------------------------------
 // feedback（会話が終わったあと、まとめて 1 回）
 // ---------------------------------------------------------------------------------------------
-export async function handleOralAcceleratedFeedback(c: Context) {
+export async function handleOralSuperbFeedback(c: Context) {
   const userId = c.get('userId') as string;
   const body = await readJson(c);
   const sessionId = clean(body?.sessionId, 64);
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return c.json({ error: 'BAD_REQUEST', message: 'Invalid conversation.' }, 400);
 
-  const transcript: { speaker: string; text: string }[] = (Array.isArray(body?.transcript) ? body.transcript : [])
+  const transcript: { speaker: string; text: string; edited: boolean }[] = (Array.isArray(body?.transcript) ? body.transcript : [])
     .slice(0, 300)
-    .map((t: any) => ({ speaker: t?.speaker === 'student' ? 'student' : 'examiner', text: clean(t?.text, 600) }))
+    .map((t: any) => ({
+      speaker: t?.speaker === 'student' ? 'student' : 'examiner',
+      text: clean(t?.text, 600),
+      // 文字起こしがまちがっていて、生徒が会話のあとに直した行
+      edited: t?.speaker === 'student' && t?.edited === true,
+    }))
     .filter((t: { text: string }) => t.text);
   if (!transcript.some((t) => t.speaker === 'student')) {
     return c.json({ error: 'NO_ANSWERS', message: 'There is nothing you said to give feedback on.' }, 400);
@@ -198,12 +208,12 @@ export async function handleOralAcceleratedFeedback(c: Context) {
   const admin = getSupabaseAdmin(c.env);
   const { data: session, error } = await admin.rpc('use_oral_realtime_feedback', { p_session_id: sessionId, p_user_id: userId });
   if (error) {
-    console.error('❌ [oral-accelerated] use_oral_realtime_feedback failed:', error.message);
+    console.error('❌ [oral-superb] use_oral_realtime_feedback failed:', error.message);
     return c.json({ error: 'UNAVAILABLE', message: 'Feedback is not available right now. Please try again.' }, 503);
   }
   if (!session) return c.json({ error: 'SESSION_ENDED', message: 'Feedback for this conversation is no longer available.' }, 409);
 
-  const { data: profile } = await admin.from('profiles').select('learning_pace').eq('id', userId).single();
+  const { data: profile } = await admin.from('profiles').select('learning_pace, nickname').eq('id', userId).single();
   const pace = profile?.learning_pace || 'normal';
   const refs = await loadOralReferences(admin);
   const focusLabel =
@@ -213,7 +223,9 @@ export async function handleOralAcceleratedFeedback(c: Context) {
       ? 'a free conversation practising the VCE oral Section 2 detailed study discussion'
       : 'a free conversation';
 
-  const lines = transcript.map((t) => `${t.speaker === 'student' ? 'STUDENT' : 'YAMATO'}: ${t.text}`);
+  const lines = transcript.map(
+    (t) => `${t.speaker === 'student' ? (t.edited ? 'STUDENT (corrected by student)' : 'STUDENT') : 'YAMATO'}: ${t.text}`
+  );
   try {
     const feedback = await callGemini(c.env, {
       system: buildMockFeedbackPrompt({
@@ -224,6 +236,7 @@ export async function handleOralAcceleratedFeedback(c: Context) {
         spec: refs.spec,
         report: refs.report,
         advice: refs.advice,
+        studentName: clean(profile?.nickname, 30),
       }),
       contents: [{ role: 'user', text: `TRANSCRIPT (YAMATO = the AI partner):\n${lines.join('\n')}` }],
       temperature: 0.4,
@@ -233,7 +246,7 @@ export async function handleOralAcceleratedFeedback(c: Context) {
     if (!feedback) throw new Error('empty feedback');
     return c.json({ feedback: normalizeKiku(feedback), pace });
   } catch (err: any) {
-    console.error('❌ [oral-accelerated] feedback AI failed:', err?.message || String(err));
+    console.error('❌ [oral-superb] feedback AI failed:', err?.message || String(err));
     return c.json({ error: 'AI_FAILED', message: 'Sorry, we could not create your feedback. Please press "Try again".' }, 500);
   }
 }
@@ -254,6 +267,6 @@ export async function hangupExpiredRealtimeCalls(env: any): Promise<number> {
     if (s.call_id) await hangup(env, s.call_id);
     await admin.from('oral_realtime_sessions').update({ ended_at: new Date().toISOString() }).eq('id', s.id);
   }
-  if ((expired || []).length > 0) console.log(`⏱️ [oral-accelerated] hung up ${(expired || []).length} expired call(s)`);
+  if ((expired || []).length > 0) console.log(`⏱️ [oral-superb] hung up ${(expired || []).length} expired call(s)`);
   return (expired || []).length;
 }
