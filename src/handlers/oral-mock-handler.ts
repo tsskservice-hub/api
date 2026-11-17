@@ -337,7 +337,7 @@ const REFERENCE_KEYS = {
   advice: ['VCE_EOY_ORAL_ADVICE2026', 'vce-eoy-oral-advice2026'],
 } as const;
 
-async function loadOralReferences(admin: any): Promise<Record<keyof typeof REFERENCE_KEYS, unknown>> {
+export async function loadOralReferences(admin: any): Promise<Record<keyof typeof REFERENCE_KEYS, unknown>> {
   const allKeys: string[] = Object.values(REFERENCE_KEYS).flat();
   const out: Record<string, unknown> = { criteria: null, spec: null, report: null, advice: null };
   try {

@@ -5,12 +5,17 @@
 import { Hono } from 'hono';
 import { handleSttRequest } from './services/stt-service';
 import { handleChatOrTtsRequest } from './handlers/chat-handler';
-import { handleRealtimeSessionRequest } from './handlers/realtime-audio-handler';
 import { FOUNDATION_LAYOUT_META } from './FoundationLayout';
 import { setSyncedKnowledge } from './services/api-sync-knowledge';
 import { requireAuth } from './services/auth';
 import { handleKanjiLookup } from './handlers/kanji-lookup-handler';
 import { handleOralMockStart, handleOralMockTurn, handleOralMockFeedback, handleOralMockSupportImage } from './handlers/oral-mock-handler';
+import {
+  handleOralAcceleratedStart,
+  handleOralAcceleratedEnd,
+  handleOralAcceleratedFeedback,
+  hangupExpiredRealtimeCalls,
+} from './handlers/oral-accelerated-handler';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
@@ -31,6 +36,8 @@ type Bindings = {
   SYNC_API_KEY?: string;
   AIYAMATO_SYSTEM_PROMPT?: string;
   OPENAI_API_KEY?: string;
+  /** EOY Oral Accelerated で使う Realtime のモデル（省略すると gpt-realtime-mini） */
+  REALTIME_MODEL?: string;
   YAMATO_KNOWLEDGE?: KVNamespace;
   LIVE_GAME: DurableObjectNamespace;
 };
@@ -57,7 +64,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/realtime/session', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image', '/api/oral-accelerated/start', '/api/oral-accelerated/end', '/api/oral-accelerated/feedback']) {
   app.use(path, requireAuth);
 }
 
@@ -135,8 +142,11 @@ app.post('/api/oral-mock/turn', handleOralMockTurn);
 app.post('/api/oral-mock/feedback', handleOralMockFeedback);
 app.post('/api/oral-mock/support-image', handleOralMockSupportImage);
 
-// 🎙️ リアルタイム音声セッション（OpenAI Realtime API）発行用エンドポイント
-app.post('/api/realtime/session', handleRealtimeSessionRequest);
+// ⚡ EOY Oral Accelerated（Realtime の自由会話）: 始める（クレジットを 1 回だけ引く）→ 終える → フィードバック
+app.post('/api/oral-accelerated/start', handleOralAcceleratedStart);
+app.post('/api/oral-accelerated/end', handleOralAcceleratedEnd);
+app.post('/api/oral-accelerated/feedback', handleOralAcceleratedFeedback);
+
 
 // ✍️ 教科書準拠レッスンのライティング課題（textbook-lesson-writing-handler.ts へ委譲）
 // GET: 課題と提出状況 / POST: 画像の読み取り（intent: "read"）・フィードバック（intent: "feedback"）
@@ -168,8 +178,17 @@ export default {
     if (gameId) return handleLiveGameSocket(request, env, gameId);
     return app.fetch(request, env, ctx);
   },
-  // 保存期間が過ぎた手書きの写真を消す（プライバシーポリシー 5 章・FAQ の約束）
-  async scheduled(_event: unknown, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+  async scheduled(event: { cron?: string }, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {
+    // 1 分ごと: 時間を過ぎても切られていない Realtime の会話（EOY Oral Accelerated）をサーバー側から切る
+    if (event?.cron === '* * * * *') {
+      ctx.waitUntil(
+        hangupExpiredRealtimeCalls(env).catch((err) => {
+          console.error('❌ [scheduled] realtime hangup failed:', err?.message || String(err));
+        })
+      );
+      return;
+    }
+    // 毎日: 保存期間が過ぎた手書きの写真を消す（プライバシーポリシー 5 章・FAQ の約束）
     ctx.waitUntil(
       deleteExpiredHandwritingImages(env).catch((err) => {
         console.error('❌ [scheduled] handwriting cleanup failed:', err?.message || String(err));
