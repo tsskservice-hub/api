@@ -18,6 +18,7 @@ import { getSupabaseAdmin } from '../services/supabase-admin';
 import { reserveCredits, refundCredits } from './credit-handler';
 import { callGemini } from '../services/gemini';
 import { normalizeKiku } from '../utils/japanese-style';
+import { cleanSeconds, summarizeTiming } from '../services/oral-timing';
 import { buildRealtimeInstructions, type RealtimeFocus } from '../prompts/eoy-oral-superb-realtime';
 import { buildMockFeedbackPrompt } from '../prompts/eoy-oral-mock-exam';
 import { loadOralReferences } from './oral-mock-handler';
@@ -192,13 +193,18 @@ export async function handleOralSuperbFeedback(c: Context) {
   const sessionId = clean(body?.sessionId, 64);
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return c.json({ error: 'BAD_REQUEST', message: 'Invalid conversation.' }, 400);
 
-  const transcript: { speaker: string; text: string; edited: boolean }[] = (Array.isArray(body?.transcript) ? body.transcript : [])
+  const transcript: { speaker: string; text: string; edited: boolean; latency?: number; duration?: number }[] = (
+    Array.isArray(body?.transcript) ? body.transcript : []
+  )
     .slice(0, 300)
     .map((t: any) => ({
       speaker: t?.speaker === 'student' ? 'student' : 'examiner',
       text: clean(t?.text, 600),
       // 文字起こしがまちがっていて、生徒が会話のあとに直した行
       edited: t?.speaker === 'student' && t?.edited === true,
+      // 画面が測った時間（答え始めるまで・話した長さ）
+      latency: t?.speaker === 'student' ? cleanSeconds(t?.latency, 120) : undefined,
+      duration: t?.speaker === 'student' ? cleanSeconds(t?.duration, 180) : undefined,
     }))
     .filter((t: { text: string }) => t.text);
   if (!transcript.some((t) => t.speaker === 'student')) {
@@ -237,6 +243,8 @@ export async function handleOralSuperbFeedback(c: Context) {
         report: refs.report,
         advice: refs.advice,
         studentName: clean(profile?.nickname, 30),
+        language: body?.feedbackLanguage === 'ja' ? 'ja' : 'en',
+        timingSummary: summarizeTiming(transcript),
       }),
       contents: [{ role: 'user', text: `TRANSCRIPT (YAMATO = the AI partner):\n${lines.join('\n')}` }],
       temperature: 0.4,

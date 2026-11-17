@@ -174,6 +174,10 @@ export function buildMockFeedbackPrompt(opts: {
   supportDescription?: string | null;
   /** 生徒の呼び名（ニックネーム）。フィードバックで "the student" のかわりに使う */
   studentName?: string;
+  /** フィードバックを書くことば（省略すると英語）。superb では生徒が日本語を選べる */
+  language?: 'en' | 'ja';
+  /** 画面が測った時間の数字（答え始めるまでの秒数・答えの長さなど）。services/oral-timing.ts */
+  timingSummary?: string | null;
 }): string {
   const name = (opts.studentName || '').trim();
   const criteriaText = toText(opts.criteria, 9000);
@@ -226,8 +230,14 @@ ${name ? `- The student's name is "${name}". Address the student directly by thi
   repetition politely), and the range and accuracy of their vocabulary and grammar.
   If hesitation words (えーと、あの、うーん) appear often in the transcript, you may mention fluency, but note that
   speech recognition often removes them, so never conclude from their absence that the student was fluent.
-  You CANNOT assess pronunciation, intonation, rhythm or tempo. Never score or comment on them.
-  At the very end, add this exact line: "Note: This feedback is based on a transcript of what you said, so pronunciation, intonation, rhythm and tempo are not assessed."
+  You CANNOT assess pronunciation, intonation or rhythm. Never score or comment on them.
+  Tempo can be judged only partly, and only from the measured timing numbers below (if given): how quickly the
+  student started answering and how long they spoke. Without those numbers, do not comment on tempo.
+  At the very end, add this exact line: ${
+    opts.language === 'ja'
+      ? '「※このフィードバックは、話した内容を文字にしたものと、画面が測った時間（答え始めるまでの速さ・話した長さ）をもとにしています。発音・抑揚・リズムは評価していません。テンポは、時間の数字から分かる一部だけです。」'
+      : '"Note: This feedback is based on a transcript of what you said and on timing measured by the app (how quickly you started answering and how long you spoke). Pronunciation, intonation and rhythm are not assessed, and tempo only partly, from those timing numbers."'
+  }
 - Quote the student's real sentences from the transcript. Never invent things the student did not say.
 - The examiner's lines are from the AI examiner. Only evaluate the student.
 - If the student said very little, say so kindly and base the feedback on what there is.
@@ -236,12 +246,38 @@ ${name ? `- The student's name is "${name}". Address the student directly by thi
   Choose N by comparing the student's performance with the criteria above.
 - The band is only an estimate for practice on this site's 5-level scale, not an official VCAA score or mark.
   Say this in one short line at the end.
-- LANGUAGE: write the whole report in ENGLISH, even though the conversation, the criteria or other references
+${
+  opts.language === 'ja'
+    ? `- LANGUAGE: the student asked for feedback in JAPANESE. Write the whole report in natural, clear Japanese
+  (です・ます形), at a level a strong VCE student can read (about JLPT N3–N2). Avoid rare kanji, or add the reading
+  in parentheses. Keep each header exactly as written below (the English words in brackets), then write the content
+  under it in Japanese.`
+    : `- LANGUAGE: write the whole report in ENGLISH, even though the conversation, the criteria or other references
   may be in Japanese. Use Japanese only inside quotes: the student's own sentences, corrected versions and example
-  expressions (e.g. 「家族と公園に行きました」).
+  expressions (e.g. 「家族と公園に行きました」).`
+}
 - Format: plain text. Each header on its own line exactly as written below. Use "・" for list items. No markdown (#, **).
 
 ${references}
+${
+  opts.timingSummary
+    ? `
+<measured_timing>
+These numbers were MEASURED by the app from the audio timing (not guessed), so they are reliable:
+${opts.timingSummary}
+Use them for one extra section with this header, placed right after the band section:
+  ⏱️ [Fluency & Response Time]
+Report the key numbers in plain words and what they suggest about how smoothly the student answered:
+- Starting to answer within about 2–3 seconds is natural in a conversation; frequent long pauses suggest the student
+  needed time to find words. Do not blame the student for one or two long pauses.
+- Answers that last about 10 seconds or more usually mean the student is elaborating; very short answers suggest
+  adding a reason or an example.
+- Characters per minute depend on how many kanji were transcribed, so use it only as a rough sign.
+- This is about timing only. It does not judge pronunciation, intonation or rhythm.
+Give one practical tip (e.g. using 「そうですね…」 to gain thinking time, or adding one more sentence).
+</measured_timing>`
+    : ''
+}
 
 ${paceModule(opts.pace)}`;
 }

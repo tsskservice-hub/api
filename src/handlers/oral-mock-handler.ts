@@ -19,6 +19,7 @@ import { getSupabaseAdmin } from '../services/supabase-admin';
 import { reserveCredits, refundCredits } from './credit-handler';
 import { callGemini } from '../services/gemini';
 import { normalizeKiku } from '../utils/japanese-style';
+import { cleanSeconds, summarizeTiming } from '../services/oral-timing';
 import {
   buildExaminerPrompt,
   buildMockFeedbackPrompt,
@@ -253,12 +254,17 @@ export async function handleOralMockFeedback(c: Context) {
   const sessionId = clean(body?.sessionId, 64);
   if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return c.json({ error: 'BAD_REQUEST', message: 'Invalid exam.' }, 400);
 
-  const transcript: { stage: string; speaker: string; text: string }[] = (Array.isArray(body?.transcript) ? body.transcript : [])
+  const transcript: { stage: string; speaker: string; text: string; latency?: number; duration?: number }[] = (
+    Array.isArray(body?.transcript) ? body.transcript : []
+  )
     .slice(0, 200)
     .map((t: any) => ({
       stage: STAGE_LABEL[t?.stage] ? t.stage : 'sec1',
       speaker: t?.speaker === 'student' ? 'student' : 'examiner',
       text: clean(t?.text, 600),
+      // 画面が測った時間（答え始めるまで・話した長さ）
+      latency: t?.speaker === 'student' ? cleanSeconds(t?.latency, 120) : undefined,
+      duration: t?.speaker === 'student' ? cleanSeconds(t?.duration, 180) : undefined,
     }))
     .filter((t: { text: string }) => t.text);
 
@@ -314,6 +320,8 @@ export async function handleOralMockFeedback(c: Context) {
         advice: refs.advice,
         supportDescription: session.support_description,
         studentName: clean(profile?.nickname, 30),
+        // 入室・退室のやりとりは除いて、試験の答えだけで計る
+        timingSummary: summarizeTiming(transcript.filter((t) => t.stage === 'sec1' || t.stage === 'sec2'), true),
       }),
       contents: [{ role: 'user', text: `${durationLine ? `Time spent: ${durationLine}\n` : ''}TRANSCRIPT:${lines.join('\n')}` }],
       temperature: 0.4,
