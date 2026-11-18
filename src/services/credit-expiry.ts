@@ -16,3 +16,16 @@ export async function expireCreditLots(env: unknown): Promise<number> {
   if (users > 0) console.log(`[credit-expiry] expired credits for ${users} user(s).`);
   return users;
 }
+
+/**
+ * 年払いのサブスクの、2 か月目以降の毎月のクレジットを渡す（1 時間ごと）。
+ * 中身はデータベース関数 grant_due_annual_credits（51_subscriptions.sql）。同じ月の分は 2 回渡さない。
+ */
+export async function grantDueAnnualCredits(env: unknown): Promise<number> {
+  const admin = getSupabaseAdmin(env);
+  const { data, error } = await admin.rpc('grant_due_annual_credits');
+  if (error) throw new Error(error.message);
+  const granted = Number(data ?? 0);
+  if (granted > 0) console.log(`[credit-expiry] granted ${granted} monthly credit batch(es) to annual subscribers.`);
+  return granted;
+}

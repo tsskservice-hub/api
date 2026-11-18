@@ -19,7 +19,7 @@ import {
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
-import { expireCreditLots } from './services/credit-expiry';
+import { expireCreditLots, grantDueAnnualCredits } from './services/credit-expiry';
 import { handleJigsawImageDelete, handleJigsawImageList, handleJigsawImageUpload } from './handlers/jigsaw-image-handler';
 import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLiveGameSocket } from './handlers/live-game-handler';
 
@@ -192,6 +192,12 @@ export default {
         ctx.waitUntil(
           expireCreditLots(env).catch((err) => {
             console.error('❌ [scheduled] credit expiry failed:', err?.message || String(err));
+          })
+        );
+        // 年払いのサブスクに、その月の分のクレジットを渡す（SQL 51）
+        ctx.waitUntil(
+          grantDueAnnualCredits(env).catch((err) => {
+            console.error('❌ [scheduled] annual credits failed:', err?.message || String(err));
           })
         );
       }
