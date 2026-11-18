@@ -12,7 +12,8 @@
  * 「VCE の漢字かどうか」は AI に聞かず、ブラウザが VCE の漢字の一覧で判定する（確実なので）。
  */
 import type { Context } from 'hono';
-import { getSupabaseAdmin } from '../services/supabase-admin';
+import { getSupabaseAdmin, isAiUnlocked } from '../services/supabase-admin';
+import { AI_TRIAL_REQUIRED_TEXT } from './credit-handler';
 import { getGoogleAccessToken } from '../services/google-auth';
 import { SERVER_CREDIT_COSTS } from '../credit-rules';
 import { counterReading, hiraganaToRomaji } from '../services/japanese-counters';
@@ -130,6 +131,16 @@ export async function handleKanjiLookup(c: Context) {
         remainingFree: 0,
         freeLimit: GUEST_FREE_LIMIT,
       }, 429);
+    }
+    // AI 体験・プランの購入前の人には、買い方を案内する（SQL 51）
+    if (userId && !(await isAiUnlocked(admin, userId))) {
+      return c.json({
+        error: 'AI_TRIAL_REQUIRED',
+        message: `You've used today's ${USER_FREE_LIMIT} free lookups. ${AI_TRIAL_REQUIRED_TEXT}`,
+        signedIn: true,
+        remainingFree: 0,
+        freeLimit: USER_FREE_LIMIT,
+      }, 402);
     }
     return c.json({
       error: 'NO_CREDITS',

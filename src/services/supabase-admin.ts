@@ -72,7 +72,7 @@ export async function consumeUserCredits(
   userId: string,
   amount: number,
   featureKey: FeatureKey
-): Promise<{ ok: boolean; balance: number }> {
+): Promise<{ ok: boolean; balance: number; reason?: string }> {
   const { data, error } = await supabaseAdmin.rpc("consume_credits", {
     p_user_id: userId,
     p_amount: amount,
@@ -81,7 +81,17 @@ export async function consumeUserCredits(
   if (error) {
     throw new Error(`consume_credits failed: ${error.message}`);
   }
-  return { ok: Boolean(data?.ok), balance: Number(data?.balance ?? 0) };
+  return { ok: Boolean(data?.ok), balance: Number(data?.balance ?? 0), reason: data?.reason ? String(data.reason) : undefined };
+}
+
+/**
+ * AI を使える状態か（AI 体験かプランを買ったか。SQL 51 の profiles.ai_unlocked_at）。
+ * 調べられないときは true（＝ふつうの「クレジット不足」の案内にする）
+ */
+export async function isAiUnlocked(supabaseAdmin: any, userId: string): Promise<boolean> {
+  const { data, error } = await supabaseAdmin.from("profiles").select("ai_unlocked_at").eq("id", userId).maybeSingle();
+  if (error || !data) return true;
+  return Boolean(data.ai_unlocked_at);
 }
 
 /**

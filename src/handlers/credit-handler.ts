@@ -10,7 +10,7 @@
  */
 
 import { Context } from 'hono';
-import { getSupabaseAdmin, consumeUserCredits, refundUserCredits } from '../services/supabase-admin';
+import { getSupabaseAdmin, consumeUserCredits, refundUserCredits, isAiUnlocked } from '../services/supabase-admin';
 import { determineFeatureKeyFromPayload, getRequiredCredits, FeatureKey } from '../credit-rules';
 
 export interface CreditReservation {
@@ -29,6 +29,10 @@ export interface CreditReservation {
 function determineFeatureKey(body: any): FeatureKey {
   return determineFeatureKeyFromPayload(body);
 }
+
+/** AI 体験・プランの購入前の人への案内（AI の各ページ・漢字ルックアップで同じ文） */
+export const AI_TRIAL_REQUIRED_TEXT =
+  "To use the AI features, start with the AI Trial (A$1 for 100 credits) or choose a plan on the Plans page (/prices). After that, your daily quiz credits can be used for AI too.";
 
 /**
  * 💳 AI を呼ぶ前にクレジットを引く（先払い）
@@ -55,17 +59,33 @@ export async function reserveCredits(
     const supabaseAdmin = getSupabaseAdmin(c.env);
     console.log(`💳 [Supabase] Consuming credits for user: ${effectiveUserId}, Feature: ${featureKey}, Amount: ${amount}`);
 
-    const { ok, balance } = await consumeUserCredits(supabaseAdmin, effectiveUserId, amount, featureKey);
+    const { ok, balance, reason } = await consumeUserCredits(supabaseAdmin, effectiveUserId, amount, featureKey);
 
     if (!ok) {
+      // AI 体験・プランの購入前の人（新しく登録したフリーの人）には、買い方を案内する（SQL 51）
+      if (reason === "AI_TRIAL_REQUIRED" || !(await isAiUnlocked(supabaseAdmin, effectiveUserId))) {
+        return {
+          ...base,
+          ok: false,
+          errorResponse: c.json({
+            error: "AI_TRIAL_REQUIRED",
+            message: AI_TRIAL_REQUIRED_TEXT,
+            reply: AI_TRIAL_REQUIRED_TEXT,
+            plansUrl: "/prices",
+            currentCredits: balance,
+            requiredCredits: amount,
+          }, 402),
+        };
+      }
       if (balance <= 0) {
         return {
           ...base,
           ok: false,
           errorResponse: c.json({
             error: "ZERO_CREDITS",
-            message: "クレジットがゼロです。学習を継続するにはプランのアップグレードまたはクレジットの追加が必要です。",
-            reply: "Your credit balance is 0. Please top up your credits to continue learning.",
+            message: "You have no credits left. Please choose a plan, or top up if you already have one, on the Plans page (/prices).",
+            reply: "You have no credits left. Please choose a plan, or top up if you already have one, on the Plans page (/prices).",
+            plansUrl: "/prices",
             currentCredits: balance,
             requiredCredits: amount,
           }, 402),
@@ -76,8 +96,9 @@ export async function reserveCredits(
         ok: false,
         errorResponse: c.json({
           error: "PARTIAL_SHORTAGE",
-          message: `この機能には ${amount} クレジット必要ですが、現在の残高は ${balance} クレジットです。`,
-          reply: `Insufficient credits. This action requires ${amount} credits (you have ${balance}).`,
+          message: `This needs ${amount} credits, but you have ${balance}. Please choose a plan, or top up if you already have one, on the Plans page (/prices).`,
+          reply: `This needs ${amount} credits, but you have ${balance}. Please choose a plan, or top up if you already have one, on the Plans page (/prices).`,
+          plansUrl: "/prices",
           currentCredits: balance,
           requiredCredits: amount,
         }, 402),
