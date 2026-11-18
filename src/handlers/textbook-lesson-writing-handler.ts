@@ -125,9 +125,9 @@ function computeDeleteAfter(settings: WritingSettings): string | null {
 }
 
 /**
- * 宿題の学校時間ブロック（ポータルの SQL 44）。このライティングが「授業中はしてはいけない宿題」で、
+ * 宿題の学校時間ブロック（ポータルの SQL 47）。このライティングが「授業中はしてはいけない宿題」で、
  * 今が学校時間中なら止める。判定はデータベースの関数 homework_task_lock 1 か所（ポータルと同じ）。
- * SQL 44 の前（関数が無い）は止めない。
+ * SQL 47 の前（関数が無い）は止めない。
  */
 async function assertHomeworkNotLocked(admin: SupabaseClient, userId: string, lessonId: string) {
   const { data, error } = await admin.rpc('homework_task_lock', { p_user_id: userId, p_lesson_id: lessonId, p_task: 'writing' });

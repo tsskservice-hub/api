@@ -19,6 +19,7 @@ import {
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
+import { expireCreditLots } from './services/credit-expiry';
 import { handleJigsawImageDelete, handleJigsawImageList, handleJigsawImageUpload } from './handlers/jigsaw-image-handler';
 import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLiveGameSocket } from './handlers/live-game-handler';
 
@@ -186,6 +187,14 @@ export default {
           console.error('❌ [scheduled] realtime hangup failed:', err?.message || String(err));
         })
       );
+      // 1 時間ごと（毎時 0 分）: 期限が来たクレジットを片づける（SQL 49。使うときにもその人の分は片づく）
+      if (new Date().getUTCMinutes() === 0) {
+        ctx.waitUntil(
+          expireCreditLots(env).catch((err) => {
+            console.error('❌ [scheduled] credit expiry failed:', err?.message || String(err));
+          })
+        );
+      }
       return;
     }
     // 毎日: 保存期間が過ぎた手書きの写真を消す（プライバシーポリシー 5 章・FAQ の約束）

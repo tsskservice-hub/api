@@ -43,12 +43,12 @@ export async function fetchUserCredits(supabaseAdmin: any, userId: string): Prom
     throw new Error(`ユーザーのプロファイル情報取得エラー: ${error.message}`);
   }
 
-  // プロファイルレコードがまだ存在しない場合の自動初期化（10クレジット付与）
+  // プロファイルレコードがまだ存在しない場合の自動初期化（新規登録のクレジットはなし。SQL 49）
   if (!data) {
     console.warn(`⚠️ [supabase-admin.ts] ユーザー ${userId} のプロファイルが見つからないため、初期作成します。`);
     const { data: insertData, error: insertError } = await supabaseAdmin
       .from("profiles")
-      .insert({ id: userId, credits: 10 })
+      .insert({ id: userId, credits: 0 })
       .select("credits")
       .single();
 
@@ -57,7 +57,7 @@ export async function fetchUserCredits(supabaseAdmin: any, userId: string): Prom
       throw new Error("初期プロファイルの作成に失敗しました。");
     }
 
-    return insertData.credits ?? 10;
+    return insertData.credits ?? 0;
   }
 
   return data.credits ?? 0;
@@ -104,55 +104,7 @@ export async function refundUserCredits(
 }
 
 /**
- * 4. クレジットを安全に加算（チャージ・付与）し、監査ログ（credit_transactions）を記録する関数
+ * ※ クレジットを足す関数（addUserCredits）は消した。profiles.credits を直接書き換えると、
+ *   期限つきのクレジット（credit_lots、SQL 49）と残高がずれるため。
+ *   足すときは必ずデータベース関数（grant_purchase_credits など）を使う。
  */
-export async function addUserCredits(
-  supabaseAdmin: any,
-  userId: string,
-  amount: number,
-  description: string = "Credit top-up"
-): Promise<{ success: boolean; newBalance?: number; error?: string }> {
-  if (amount <= 0) {
-    return { success: false, error: "加算するクレジット数は1以上を指定してください。" };
-  }
-
-  try {
-    // 最新残高を取得（プロファイル未作成の場合は自動作成される仕様をそのまま利用）
-    const currentCredits = await fetchUserCredits(supabaseAdmin, userId);
-    const newBalance = currentCredits + amount;
-
-    // profiles テーブルの残高を加算後の数値で更新
-    const { error: updateError } = await supabaseAdmin
-      .from("profiles")
-      .update({ credits: newBalance })
-      .eq("id", userId);
-
-    if (updateError) {
-      throw new Error(`Profile update failed: ${updateError.message}`);
-    }
-
-    // クレジット取得・チャージ履歴（監査ログ）を credit_transactions に記録
-    try {
-      const { error: txError } = await supabaseAdmin
-        .from("credit_transactions")
-        .insert({
-          user_id: userId,
-          amount: amount, // 正の数値を記録
-          feature_used: "credit_charge",
-          description: description,
-        });
-
-      if (txError) {
-        console.warn("⚠️ [supabase-admin.ts] クレジットトランザクションログの記録に失敗しました:", txError.message);
-      }
-    } catch (txEx: any) {
-      console.warn("⚠️ [supabase-admin.ts] credit_transactions への挿入スキップ:", txEx?.message);
-    }
-
-    console.log(`✨ [supabase-admin.ts] クレジット加算成功: ユーザー ${userId}, 追加: +${amount}, 最新残高: ${newBalance}`);
-    return { success: true, newBalance };
-  } catch (err: any) {
-    console.error("❌ [supabase-admin.ts] クレジット加算処理で例外発生:", err.message);
-    return { success: false, error: err.message };
-  }
-}
