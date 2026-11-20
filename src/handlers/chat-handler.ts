@@ -11,6 +11,7 @@ import { dispatchSystemPrompt } from '../prompts/prompt-dispatcher';
 import { reserveCredits, refundCredits, CreditReservation } from './credit-handler';
 import { getSyncedKnowledge } from '../services/api-sync-knowledge';
 import { normalizeKiku } from '../utils/japanese-style';
+import { normalizePace } from '../prompts/pace-feedback';
 import { createFollowUpToken, extractFollowUp, redeemFollowUpToken, validateFollowUp } from '../services/oral-followup';
 
 /**
@@ -200,6 +201,8 @@ export async function handleChatOrTtsRequest(c: Context) {
       faqList: syncedKnowledge?.faqList || [],
       currentTurn: history.length + 1,
       pace: body.learningPace || body.pace,
+      // 土台（FoundationLayout）が読む名前。以前は渡しておらず、土台の「Student Learning Pace」がいつも normal だった（2026-11-21 に修正）
+      learningPace: normalizePace(body.learningPace || body.pace),
       // 🎙️ 口頭試験ドリル: 今の質問と、生徒が登録した答え（AI が何の質問への答えかを分かるように）
       expectedQuestion: toPromptField(body.expectedQuestion, 300),
       registeredAnswer: isFollowUpAnswer ? undefined : toPromptField(body.registeredAnswer, 1500),

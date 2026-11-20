@@ -16,7 +16,8 @@ import {
   handleOralSuperbFeedback,
   hangupExpiredRealtimeCalls,
 } from './handlers/oral-superb-handler';
-import { handleWorldStart } from './handlers/world-handler';
+import { handleWorldFeedback, handleWorldStart } from './handlers/world-handler';
+import { handlePlazaAgree, handlePlazaJoin, handlePlazaSocket, handlePlazaStatus, matchPlazaSocket } from './handlers/world-plaza-handler';
 import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
@@ -26,6 +27,8 @@ import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLi
 
 // クラスのライブゲームの部屋（Durable Object）。wrangler.toml の durable_objects から参照される
 export { LiveGameRoom } from './live-game/room';
+// Yamato Town の「みんなで」モードの部屋（Durable Object）
+export { WorldPlazaRoom } from './world/plaza-room';
 
 type Bindings = {
   VERTEX_AI_KEY?: string;
@@ -42,6 +45,7 @@ type Bindings = {
   REALTIME_MODEL?: string;
   YAMATO_KNOWLEDGE?: KVNamespace;
   LIVE_GAME: DurableObjectNamespace;
+  WORLD_PLAZA: DurableObjectNamespace;
 };
 
 const app = new Hono<{ Bindings: Bindings; Variables: { userId: string } }>();
@@ -66,7 +70,7 @@ app.use('*', async (c, next) => {
 
 // 🔐 ログイン必須のエンドポイント（AI・音声機能はすべてログインした人だけが使える）
 // ユーザーIDはアクセストークンから特定し、c.get('userId') で受け取る。body.userId は使わない。
-for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image', '/api/oral-superb/start', '/api/oral-superb/end', '/api/oral-superb/feedback', '/api/world/start', '/api/world/end']) {
+for (const path of ['/chat', '/api/chat', '/api/test-tts', '/api/stt', '/api/test-stt', '/api/textbook-lesson-writing', '/api/live-game/create', '/api/live-game/mine', '/api/live-game/jigsaw/images', '/api/live-game/jigsaw/images/delete', '/api/oral-mock/start', '/api/oral-mock/turn', '/api/oral-mock/feedback', '/api/oral-mock/support-image', '/api/oral-superb/start', '/api/oral-superb/end', '/api/oral-superb/feedback', '/api/world/start', '/api/world/end', '/api/world/feedback', '/api/world/plaza/status', '/api/world/plaza/agree', '/api/world/plaza/join']) {
   app.use(path, requireAuth);
 }
 
@@ -151,6 +155,10 @@ app.post('/api/oral-superb/feedback', handleOralSuperbFeedback);
 // 🍔 会話練習の空間（Yamato Town）。終わり方は EOY Oral Superb と同じ
 app.post('/api/world/start', handleWorldStart);
 app.post('/api/world/end', handleOralSuperbEnd);
+app.post('/api/world/feedback', handleWorldFeedback);
+app.get('/api/world/plaza/status', handlePlazaStatus);
+app.post('/api/world/plaza/agree', handlePlazaAgree);
+app.post('/api/world/plaza/join', handlePlazaJoin);
 
 
 // ✍️ 教科書準拠レッスンのライティング課題（textbook-lesson-writing-handler.ts へ委譲）
@@ -180,6 +188,9 @@ export default {
     // ライブゲームの WebSocket は Hono を通さずに部屋へ渡す
     const gameId = matchLiveGameSocket(request);
     if (gameId) return handleLiveGameSocket(request, env, gameId);
+    // Yamato Town の「みんなで」モードの WebSocket も同じ
+    const plazaRoom = matchPlazaSocket(request);
+    if (plazaRoom) return handlePlazaSocket(request, env, plazaRoom);
     return app.fetch(request, env, ctx);
   },
   async scheduled(event: { cron?: string }, env: Bindings, ctx: { waitUntil(promise: Promise<unknown>): void }) {

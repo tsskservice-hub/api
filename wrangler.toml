@@ -28,3 +28,12 @@ class_name = "LiveGameRoom"
 [[migrations]]
 tag = "v1-live-game"
 new_sqlite_classes = ["LiveGameRoom"]
+
+# Yamato Town の「みんなで（Together）」モードの部屋（src/world/plaza-room.ts）。場所ごと・番号ごとに 1 つ
+[[durable_objects.bindings]]
+name = "WORLD_PLAZA"
+class_name = "WorldPlazaRoom"
+
+[[migrations]]
+tag = "v2-world-plaza"
+new_sqlite_classes = ["WorldPlazaRoom"]

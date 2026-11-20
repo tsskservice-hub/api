@@ -7,6 +7,8 @@
  *          サーバーが OpenAI に会話をつなぐ（API キーはブラウザに出さない）。ブラウザには WebRTC の答え（SDP）を返す
  *        ・ブラウザは声を受け取るだけ（recvonly）。生徒の発言は、確かめた文字をデータチャンネルで送る
  *   POST /api/world/end … EOY Oral Superb と同じ処理（handleOralSuperbEnd）。会話を切り、英語が出た回数を記録する
+ *   POST /api/world/feedback { sessionId, transcript } → 会話のあとのフィードバック（learning pace に合わせる）。
+ *        会話のクレジットに入っている（追加のクレジットはなし）。1 回の会話につき 3 回・3 時間まで（use_oral_realtime_feedback）
  *
  * 記録は oral_realtime_sessions（focus = 'world:<場所>'、SQL 55）。「1 人 1 つまで」「時間が来たらサーバーが切る」は
  * EOY Oral Superb と共通（hangupExpiredRealtimeCalls）。会話の中身（声・文字）は保存しない。
@@ -15,6 +17,10 @@ import type { Context } from 'hono';
 import { getSupabaseAdmin } from '../services/supabase-admin';
 import { reserveCredits, refundCredits } from './credit-handler';
 import { WORLD_PLACES } from '../world/places';
+import { callGemini } from '../services/gemini';
+import { normalizeKiku } from '../utils/japanese-style';
+import { buildWorldFeedbackPrompt } from '../prompts/world-feedback';
+import { normalizePace } from '../prompts/pace-feedback';
 
 const OPENAI_BASE = 'https://api.' + ['open', 'ai'].join('') + '.com/v1/realtime/calls';
 /** 時間が来てから、締めのあいさつのために待つ時間（この後はサーバーが切る） */
@@ -114,5 +120,57 @@ export async function handleWorldStart(c: Context) {
     await admin.from('oral_realtime_sessions').update({ ended_at: new Date().toISOString() }).eq('id', session.id);
     await refundCredits(c.env, reservation);
     return c.json({ error: 'UNAVAILABLE', message: 'We could not connect to the shop. Your credits were not used. Please try again.' }, 502);
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
+// feedback（会話が終わったあと、毎回 1 回。learning pace に合わせる）
+// ---------------------------------------------------------------------------------------------
+export async function handleWorldFeedback(c: Context) {
+  const userId = c.get('userId') as string;
+  const body = (await c.req.json().catch(() => null)) as any;
+  const sessionId = typeof body?.sessionId === 'string' ? body.sessionId : '';
+  if (!/^[0-9a-f-]{36}$/i.test(sessionId)) return c.json({ error: 'BAD_REQUEST', message: 'Invalid conversation.' }, 400);
+
+  const transcript: { speaker: 'student' | 'clerk'; text: string }[] = (Array.isArray(body?.transcript) ? body.transcript : [])
+    .slice(0, 120)
+    .map((t: any) => ({
+      speaker: t?.speaker === 'student' ? ('student' as const) : ('clerk' as const),
+      text: typeof t?.text === 'string' ? t.text.replace(/[<>]/g, '').trim().slice(0, 300) : '',
+    }))
+    .filter((t: { text: string }) => t.text);
+  if (!transcript.some((t) => t.speaker === 'student')) {
+    return c.json({ error: 'NO_ANSWERS', message: "You didn't say anything, so there is no feedback this time." }, 400);
+  }
+
+  const admin = getSupabaseAdmin(c.env);
+  const { data: session, error } = await admin.rpc('use_oral_realtime_feedback', { p_session_id: sessionId, p_user_id: userId });
+  if (error) {
+    console.error('❌ [world] use_oral_realtime_feedback failed:', error.message);
+    return c.json({ error: 'UNAVAILABLE', message: 'Feedback is not available right now. Please try again.' }, 503);
+  }
+  const focus = String((session as any)?.focus ?? '');
+  const place = focus.startsWith('world:') ? WORLD_PLACES[focus.slice('world:'.length)] : undefined;
+  if (!session || !place) {
+    return c.json({ error: 'SESSION_ENDED', message: 'Feedback for this conversation is no longer available.' }, 409);
+  }
+
+  const { data: profile } = await admin.from('profiles').select('learning_pace, nickname').eq('id', userId).single();
+  const pace = normalizePace(profile?.learning_pace);
+  const nickname = typeof profile?.nickname === 'string' ? profile.nickname.replace(/[<>]/g, '').slice(0, 30) : '';
+  const lines = transcript.map((t) => `${t.speaker === 'student' ? 'STUDENT' : 'CLERK'}: ${t.text}`).join('\n');
+  try {
+    const feedback = await callGemini(c.env, {
+      system: buildWorldFeedbackPrompt({ pace, scene: place.feedback.scene, goals: place.feedback.goals, studentName: nickname }),
+      contents: [{ role: 'user', text: `TRANSCRIPT:\n${lines}` }],
+      temperature: 0.4,
+      maxOutputTokens: 2048,
+      thinkingBudget: 512,
+    });
+    if (!feedback) throw new Error('empty feedback');
+    return c.json({ feedback: normalizeKiku(feedback), pace });
+  } catch (err: any) {
+    console.error('❌ [world] feedback AI failed:', err?.message || String(err));
+    return c.json({ error: 'AI_FAILED', message: 'Sorry, we could not create your feedback. Please press "Try again".' }, 500);
   }
 }

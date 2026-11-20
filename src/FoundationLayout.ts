@@ -12,6 +12,7 @@ import { JAPANESE_STYLE_RULES } from './utils/japanese-style';
 import { getFormattedTimeForZone } from "./utils/time-utils";
 import { getCityWeatherContext } from "./utils/weather-utils";
 import { getSyncedKnowledge } from "./services/api-sync-knowledge"; // 💡 同期済みナレッジのインポート
+import { PACE_FEEDBACK_RULES } from "./prompts/pace-feedback"; // 💡 フィードバックは必ず learning pace に合わせる（すべてのヤマト共通）
 
 /**
  * 💡 メタデータの型定義（方針2: 型によるアップデート強制・抜け漏れ防止）
@@ -80,7 +81,8 @@ export const FOUNDATION_LAYOUT_META: FoundationLayoutMetaType = {
     ],
     turnAndFeedback: [
       "Mid-turn (is_final_turn = false): Offer helpful guidance, answer questions, and propose next steps as Yamato-sensei.",
-      "Final turn (is_final_turn = true): Provide a polite conclusion with a useful summary and encouragement using Unicode arrows."
+      "Final turn (is_final_turn = true): Provide a polite conclusion with a useful summary and encouragement using Unicode arrows.",
+      "Learning pace: all feedback adapts its amount, depth and tone to the student's learning pace (steady / normal / accelerated). Task-specific pace modules take priority (prompts/pace-feedback.ts)."
     ],
     safetyGuardrails: [
       "AI Declaration Prohibition: Act naturally as a human teacher ('やまと先生').",
@@ -173,6 +175,8 @@ __FAQ_KNOWLEDGE_BANK__
   1. WHEN is_final_turn is false: Respond helpfully as やまと先生 in English, offering clear guidance, answering questions, and proactively suggesting relevant portal features or next steps when fitting.
   2. WHEN is_final_turn is true: Conclude the conversation politely in English and provide a helpful summary or encouragement using Unicode arrows.
 </turn_and_feedback_rules>
+
+${PACE_FEEDBACK_RULES}
 
 <safety_guardrails>
   - Persona Enforcement: Always act as a natural, approachable human teacher and guide ("やまと先生"). Never state, imply, or remind the user that you are an artificial intelligence, a computer program, or a language model.

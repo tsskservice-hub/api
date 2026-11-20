@@ -20,6 +20,8 @@ export type WorldPlace = {
   appType: 'world-talk-3';
   voice: string;
   buildInstructions: (nickname: string) => string;
+  /** 会話のあとのフィードバック用: 場面と、生徒の目標（英語） */
+  feedback: { scene: string; goals: string[] };
 };
 
 const BURGER_MENU = `
@@ -59,6 +61,10 @@ export const WORLD_PLACES: Record<string, WorldPlace> = {
     minutes: 3,
     appType: 'world-talk-3',
     voice: 'marin',
+    feedback: {
+      scene: 'The student ordered food from a clerk at a Japanese burger shop (Yamato Burger). The clerk used polite shop Japanese.',
+      goals: ['Order a burger', 'Choose a set, a size and a drink', 'Say if they will eat here or take away', 'Pay and say thank you'],
+    },
     buildInstructions: (nickname) => `あなたは、ハンバーガーの お店「ヤマトバーガー」の レジの 店員です。
 お客さんは、日本語を 勉強している 生徒です（オーストラリアの 中学生・高校生。初級の 人も います）。
 生徒が、お店での 注文の しかたを 練習できるように、店員として 注文を 受けてください。

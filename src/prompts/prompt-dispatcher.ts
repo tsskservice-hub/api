@@ -27,6 +27,8 @@ export interface PromptOptions {
   faqList?: any[];
   currentTurn: number;
   pace?: string;
+  /** 土台（FoundationLayout）が読む learning pace。フィードバックの量・内容をこれに合わせる（prompts/pace-feedback.ts） */
+  learningPace?: "steady" | "normal" | "accelerated";
   selectedTextType?: string;
   studentEssay?: string;
   exactCharacterCount?: number;
