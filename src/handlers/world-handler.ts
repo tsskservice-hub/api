@@ -5,6 +5,7 @@
  *   POST /api/world/start { place, sdp }
  *        → 場所の設定（src/world/places.ts）で AI の役割を決め、クレジットを 1 回だけ引いて（3 分: 15）、
  *          サーバーが OpenAI に会話をつなぐ（API キーはブラウザに出さない）。ブラウザには WebRTC の答え（SDP）を返す
+ *        ・ブラウザは声を受け取るだけ（recvonly）。生徒の発言は、確かめた文字をデータチャンネルで送る
  *   POST /api/world/end … EOY Oral Superb と同じ処理（handleOralSuperbEnd）。会話を切り、英語が出た回数を記録する
  *
  * 記録は oral_realtime_sessions（focus = 'world:<場所>'、SQL 55）。「1 人 1 つまで」「時間が来たらサーバーが切る」は
@@ -68,6 +69,10 @@ export async function handleWorldStart(c: Context) {
 
   const { data: profile } = await admin.from('profiles').select('nickname, credits').eq('id', userId).single();
   const nickname = typeof profile?.nickname === 'string' ? profile.nickname.replace(/[<>]/g, '').slice(0, 30) : '';
+  // 生徒の声は OpenAI に流さない（2026-11-21 に変更）。
+  //   生徒は録音 → 文字起こし（/api/stt）→ 文字を確かめて「送る」。ブラウザが文字を会話に入れて返事を頼む。
+  //   聞き間違いで店員の返事がずれるのを防ぐため（レッスンのスピーキングタスク・Oral Drill と同じ考え方）。
+  //   そのため、話の切れ目の自動判定（turn_detection）と、声の文字起こしは使わない。店員の声（出力）だけ使う
   const sessionConfig = {
     type: 'realtime',
     model: c.env.REALTIME_MODEL || 'gpt-realtime-mini',
@@ -75,12 +80,7 @@ export async function handleWorldStart(c: Context) {
     // 店員は 1 回に 1 文だけ話すので、返事は短くてよい（費用も抑える）
     max_output_tokens: 250,
     audio: {
-      input: {
-        transcription: { model: 'gpt-4o-transcribe', language: 'ja' },
-        // 初級の生徒が考える時間をとれるように、話の切れ目の判定はゆっくりめ
-        turn_detection: { type: 'semantic_vad', eagerness: 'low' },
-        noise_reduction: { type: 'near_field' },
-      },
+      input: { turn_detection: null },
       output: { voice: place.voice },
     },
   };

@@ -21,7 +21,7 @@ import { getAllowedOrigin } from './services/cors';
 import { handleWritingStatusRequest, handleWritingPostRequest } from './handlers/textbook-lesson-writing-handler';
 import { deleteExpiredHandwritingImages } from './services/handwriting-cleanup';
 import { expireCreditLots, grantDueAnnualCredits } from './services/credit-expiry';
-import { handleJigsawImageDelete, handleJigsawImageList, handleJigsawImageUpload } from './handlers/jigsaw-image-handler';
+import { handleJigsawImageDelete, handleJigsawImageList } from './handlers/jigsaw-image-handler';
 import { handleLiveGameCreate, handleLiveGameMine, handleLiveGameSocket, matchLiveGameSocket } from './handlers/live-game-handler';
 
 // クラスのライブゲームの部屋（Durable Object）。wrangler.toml の durable_objects から参照される
@@ -163,7 +163,6 @@ app.post('/api/live-game/create', handleLiveGameCreate);
 app.get('/api/live-game/mine', handleLiveGameMine);
 // 🧩 みんなでジグソーの写真（一覧・アップロード）
 app.get('/api/live-game/jigsaw/images', handleJigsawImageList);
-app.post('/api/live-game/jigsaw/images', handleJigsawImageUpload);
 app.post('/api/live-game/jigsaw/images/delete', handleJigsawImageDelete);
 
 // 404 ハンドラー
