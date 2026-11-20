@@ -119,7 +119,7 @@ export async function handleWorldStart(c: Context) {
     console.error('❌ [world] OpenAI call failed:', err?.message || String(err));
     await admin.from('oral_realtime_sessions').update({ ended_at: new Date().toISOString() }).eq('id', session.id);
     await refundCredits(c.env, reservation);
-    return c.json({ error: 'UNAVAILABLE', message: 'We could not connect to the shop. Your credits were not used. Please try again.' }, 502);
+    return c.json({ error: 'UNAVAILABLE', message: 'We could not start the conversation. Your credits were not used. Please try again.' }, 502);
   }
 }
 
